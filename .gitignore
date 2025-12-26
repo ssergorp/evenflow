@@ -1,0 +1,115 @@
+# -----------------------------
+# Python
+# -----------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.pytype/
+.ruff_cache/
+coverage.xml
+.coverage
+htmlcov/
+.tox/
+.nox/
+.cache/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Jupyter / IPython
+.ipynb_checkpoints/
+.profile_default/
+.ipython/
+
+# -----------------------------
+# OS / Editor
+# -----------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# -----------------------------
+# Evennia / Django / Twisted
+# -----------------------------
+# Evennia generates a game directory structure with runtime logs and DB files.
+# Keep source, ignore runtime artifacts.
+
+# Logs
+logs/
+*.log
+
+# SQLite DBs (common in local dev)
+*.sqlite3
+*.db
+
+# Django collected static / media (if used)
+static/
+media/
+
+# Evennia runtime / server artifacts (common patterns)
+server/logs/
+server/.env
+server/.secret
+server/state/
+server/cache/
+server/tmp/
+server/.pytest_cache/
+
+# Twisted / PID / lock files
+twistd.pid
+*.pid
+*.pid.lock
+
+# -----------------------------
+# Secrets / Env files
+# -----------------------------
+.env
+.env.*
+!.env.example
+
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+
+# API config / token dumps (add your actual filenames here if you use them)
+secrets.yaml
+secrets.json
+config.local.yaml
+
+# -----------------------------
+# Node / Discord bridge (if you add one later)
+# -----------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+build/
+
+# -----------------------------
+# Misc
+# -----------------------------
+tmp/
+.temp/
+*.tmp
