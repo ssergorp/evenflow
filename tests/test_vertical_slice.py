@@ -14,6 +14,7 @@ from world.affinity.core import (
     Location,
     AffinityEvent,
     AffordanceConfig,
+    TraceRecord,
     SaturationState,
 )
 from world.affinity.computation import (
@@ -105,45 +106,59 @@ class TestDecayMath:
 
     def test_no_decay_at_zero_time(self):
         """Value should be unchanged at t=0."""
-        from world.affinity.core import TraceRecord
-
+        now = 1000000.0
         trace = TraceRecord(
             accumulated=1.0,
-            last_updated=time.time(),
+            last_updated=now,
             event_count=1,
         )
 
         # At creation time, should be full value
-        result = get_decayed_value(trace, half_life_seconds=86400)
+        result = get_decayed_value(trace, half_life_seconds=86400, now=now)
         assert result == pytest.approx(1.0, rel=0.01)
 
     def test_half_value_at_half_life(self):
         """Value should be ~50% after one half-life."""
-        from world.affinity.core import TraceRecord
-
         half_life = 86400  # 1 day in seconds
+        creation_time = 1000000.0
+        eval_time = creation_time + half_life
+
         trace = TraceRecord(
             accumulated=1.0,
-            last_updated=time.time() - half_life,  # 1 day ago
+            last_updated=creation_time,
             event_count=1,
         )
 
-        result = get_decayed_value(trace, half_life_seconds=half_life)
+        result = get_decayed_value(trace, half_life_seconds=half_life, now=eval_time)
         assert result == pytest.approx(0.5, rel=0.01)
 
     def test_quarter_value_at_two_half_lives(self):
         """Value should be ~25% after two half-lives."""
-        from world.affinity.core import TraceRecord
-
         half_life = 86400  # 1 day in seconds
+        creation_time = 1000000.0
+        eval_time = creation_time + (2 * half_life)
+
         trace = TraceRecord(
             accumulated=1.0,
-            last_updated=time.time() - (2 * half_life),  # 2 days ago
+            last_updated=creation_time,
             event_count=1,
         )
 
-        result = get_decayed_value(trace, half_life_seconds=half_life)
+        result = get_decayed_value(trace, half_life_seconds=half_life, now=eval_time)
         assert result == pytest.approx(0.25, rel=0.01)
+
+    def test_deterministic_with_explicit_now(self):
+        """Decay should be deterministic when now is provided."""
+        trace = TraceRecord(
+            accumulated=1.0,
+            last_updated=1000000.0,
+            event_count=1,
+        )
+
+        # Same now = same result
+        result1 = get_decayed_value(trace, half_life_seconds=86400, now=1043200.0)
+        result2 = get_decayed_value(trace, half_life_seconds=86400, now=1043200.0)
+        assert result1 == result2  # Exact match, not approx
 
 
 # --- Valuation Fallback Tests ---
@@ -175,10 +190,14 @@ class TestNeutralOutcome:
 
     def test_empty_location_is_neutral(self, whispering_woods, actor_human_hunter):
         """A location with no traces should be neutral."""
+        reset_config()
+        now = time.time()
+
         affinity = compute_affinity(
             whispering_woods,
             actor_human_hunter["actor_id"],
             actor_human_hunter["actor_tags"],
+            now=now
         )
 
         assert affinity == pytest.approx(0.0, abs=0.01)
@@ -187,6 +206,7 @@ class TestNeutralOutcome:
     def test_neutral_produces_no_adjustments(self, whispering_woods, actor_human_hunter):
         """Neutral affinity should produce no mechanical adjustments."""
         reset_config()
+        now = time.time()
 
         ctx = AffordanceContext(
             actor_id=actor_human_hunter["actor_id"],
@@ -194,6 +214,7 @@ class TestNeutralOutcome:
             location=whispering_woods,
             action_type="move.pass",
             action_target=None,
+            timestamp=now,
         )
 
         outcome = evaluate_affordances(ctx)
@@ -212,6 +233,7 @@ class TestHostileOutcome:
     def test_fire_creates_hostility(self, whispering_woods, actor_human_hunter):
         """A fire event should create negative affinity."""
         reset_config()
+        now = time.time()
 
         event = AffinityEvent(
             event_type="harm.fire",
@@ -219,6 +241,7 @@ class TestHostileOutcome:
             actor_tags=actor_human_hunter["actor_tags"],
             location_id=whispering_woods.location_id,
             intensity=0.6,
+            timestamp=now,
         )
 
         log_event(whispering_woods, event)
@@ -227,6 +250,7 @@ class TestHostileOutcome:
             whispering_woods,
             actor_human_hunter["actor_id"],
             actor_human_hunter["actor_tags"],
+            now=now
         )
 
         # Should be negative (hostile or unwelcoming)
@@ -236,6 +260,7 @@ class TestHostileOutcome:
     def test_hostile_traveler_is_slowed(self, whispering_woods, actor_human_hunter):
         """A hostile forest should slow the traveler."""
         reset_config()
+        now = time.time()
 
         # Create hostility
         event = AffinityEvent(
@@ -244,6 +269,7 @@ class TestHostileOutcome:
             actor_tags=actor_human_hunter["actor_tags"],
             location_id=whispering_woods.location_id,
             intensity=0.6,
+            timestamp=now,
         )
         log_event(whispering_woods, event)
 
@@ -254,6 +280,7 @@ class TestHostileOutcome:
             location=whispering_woods,
             action_type="move.pass",
             action_target=None,
+            timestamp=now,
         )
 
         outcome = evaluate_affordances(ctx)
@@ -267,6 +294,9 @@ class TestHostileOutcome:
         assert "affinity" not in outcome.tells[0].lower()
         assert "%" not in outcome.tells[0]
 
+        # Effect should be "slow" not the affordance name
+        assert outcome.trace.effect_applied == "slow"
+
 
 # --- Counterplay Tests ---
 
@@ -276,6 +306,7 @@ class TestCounterplay:
     def test_gift_creates_positive_trace(self, whispering_woods, actor_human_hunter):
         """A gift should create a positive trace."""
         reset_config()
+        now = time.time()
 
         event = AffinityEvent(
             event_type="offer.gift",
@@ -283,6 +314,7 @@ class TestCounterplay:
             actor_tags=actor_human_hunter["actor_tags"],
             location_id=whispering_woods.location_id,
             intensity=0.5,
+            timestamp=now,
         )
 
         log_event(whispering_woods, event)
@@ -291,6 +323,7 @@ class TestCounterplay:
             whispering_woods,
             actor_human_hunter["actor_id"],
             actor_human_hunter["actor_tags"],
+            now=now
         )
 
         # Should be positive
@@ -299,6 +332,7 @@ class TestCounterplay:
     def test_gift_reduces_hostility(self, whispering_woods, actor_human_hunter):
         """Gifts after fire should reduce hostility."""
         reset_config()
+        now = time.time()
 
         # Create hostility
         fire_event = AffinityEvent(
@@ -307,6 +341,7 @@ class TestCounterplay:
             actor_tags=actor_human_hunter["actor_tags"],
             location_id=whispering_woods.location_id,
             intensity=0.6,
+            timestamp=now,
         )
         log_event(whispering_woods, fire_event)
 
@@ -314,16 +349,18 @@ class TestCounterplay:
             whispering_woods,
             actor_human_hunter["actor_id"],
             actor_human_hunter["actor_tags"],
+            now=now
         )
 
         # Offer gifts
-        for _ in range(3):
+        for i in range(3):
             gift_event = AffinityEvent(
                 event_type="offer.gift",
                 actor_id=actor_human_hunter["actor_id"],
                 actor_tags=actor_human_hunter["actor_tags"],
                 location_id=whispering_woods.location_id,
                 intensity=0.5,
+                timestamp=now + i,  # Slightly different timestamps
             )
             log_event(whispering_woods, gift_event)
 
@@ -331,6 +368,7 @@ class TestCounterplay:
             whispering_woods,
             actor_human_hunter["actor_id"],
             actor_human_hunter["actor_tags"],
+            now=now + 3
         )
 
         # Should be less hostile
@@ -342,9 +380,10 @@ class TestCounterplay:
 class TestReplayDeterminism:
     """Test that replay produces identical results."""
 
-    def test_replay_matches_original(self, whispering_woods, actor_human_hunter):
-        """Replay from snapshot must produce identical affinity."""
+    def test_replay_matches_original_exactly(self, whispering_woods, actor_human_hunter):
+        """Replay from snapshot must produce EXACTLY identical affinity."""
         reset_config()
+        now = time.time()
 
         # Create some traces
         event = AffinityEvent(
@@ -353,6 +392,7 @@ class TestReplayDeterminism:
             actor_tags=actor_human_hunter["actor_tags"],
             location_id=whispering_woods.location_id,
             intensity=0.6,
+            timestamp=now,
         )
         log_event(whispering_woods, event)
 
@@ -363,6 +403,7 @@ class TestReplayDeterminism:
             location=whispering_woods,
             action_type="move.pass",
             action_target=None,
+            timestamp=now,
         )
 
         outcome = evaluate_affordances(ctx)
@@ -371,15 +412,14 @@ class TestReplayDeterminism:
         # Replay from snapshot
         replayed_affinity = replay_from_snapshot(snapshot)
 
-        # Must match exactly (DO_NOT.md #6)
-        assert replayed_affinity == pytest.approx(
-            snapshot.computed_affinity,
-            abs=1e-10  # Exact match, not approximate
-        )
+        # Must match EXACTLY (DO_NOT.md #6)
+        # This is now a true exact match because eval_time is frozen
+        assert replayed_affinity == snapshot.computed_affinity
 
     def test_replay_independent_of_current_state(self, whispering_woods, actor_human_hunter):
         """Replay should not be affected by changes after snapshot."""
         reset_config()
+        now = time.time()
 
         # Create initial state
         event = AffinityEvent(
@@ -388,6 +428,7 @@ class TestReplayDeterminism:
             actor_tags=actor_human_hunter["actor_tags"],
             location_id=whispering_woods.location_id,
             intensity=0.6,
+            timestamp=now,
         )
         log_event(whispering_woods, event)
 
@@ -398,27 +439,62 @@ class TestReplayDeterminism:
             location=whispering_woods,
             action_type="move.pass",
             action_target=None,
+            timestamp=now,
         )
         outcome = evaluate_affordances(ctx)
         snapshot = outcome.snapshot
 
         # Modify current state (more events)
-        for _ in range(5):
+        for i in range(5):
             more_fire = AffinityEvent(
                 event_type="harm.fire",
                 actor_id=actor_human_hunter["actor_id"],
                 actor_tags=actor_human_hunter["actor_tags"],
                 location_id=whispering_woods.location_id,
                 intensity=0.8,
+                timestamp=now + i + 1,
             )
             log_event(whispering_woods, more_fire)
 
-        # Replay should still match original
+        # Replay should still match original EXACTLY
         replayed_affinity = replay_from_snapshot(snapshot)
-        assert replayed_affinity == pytest.approx(
-            snapshot.computed_affinity,
-            abs=1e-10
+        assert replayed_affinity == snapshot.computed_affinity
+
+    def test_replay_with_time_passage(self, whispering_woods, actor_human_hunter):
+        """Replay should work even if real time has passed."""
+        reset_config()
+        creation_time = 1000000.0
+
+        # Create traces at a specific time
+        event = AffinityEvent(
+            event_type="harm.fire",
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location_id=whispering_woods.location_id,
+            intensity=0.6,
+            timestamp=creation_time,
         )
+        log_event(whispering_woods, event)
+
+        # Evaluate at creation time
+        ctx = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="move.pass",
+            action_target=None,
+            timestamp=creation_time,
+        )
+        outcome = evaluate_affordances(ctx)
+        snapshot = outcome.snapshot
+
+        # Replay should match regardless of when we call it
+        # because it uses snapshot.eval_time, not current time
+        replayed_affinity = replay_from_snapshot(snapshot)
+        assert replayed_affinity == snapshot.computed_affinity
+
+        # Verify eval_time is stored
+        assert snapshot.eval_time == creation_time
 
 
 # --- Cooldown Tests ---
@@ -429,6 +505,7 @@ class TestCooldowns:
     def test_cooldown_prevents_immediate_retrigger(self, whispering_woods, actor_human_hunter):
         """Affordance should not trigger twice in a row."""
         reset_config()
+        now = time.time()
 
         # Create hostility
         event = AffinityEvent(
@@ -437,6 +514,7 @@ class TestCooldowns:
             actor_tags=actor_human_hunter["actor_tags"],
             location_id=whispering_woods.location_id,
             intensity=0.6,
+            timestamp=now,
         )
         log_event(whispering_woods, event)
 
@@ -446,6 +524,7 @@ class TestCooldowns:
             location=whispering_woods,
             action_type="move.pass",
             action_target=None,
+            timestamp=now,
         )
 
         # First evaluation triggers
@@ -454,7 +533,15 @@ class TestCooldowns:
         assert len(outcome1.cooldowns_consumed) > 0
 
         # Second evaluation should not trigger (cooldown active)
-        outcome2 = evaluate_affordances(ctx)
+        ctx2 = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="move.pass",
+            action_target=None,
+            timestamp=now + 1,  # 1 second later
+        )
+        outcome2 = evaluate_affordances(ctx2)
         assert outcome2.triggered is False
         assert outcome2.adjustments == {}
 
@@ -467,15 +554,17 @@ class TestSeverityClamp:
     def test_hostile_clamped_to_max(self, whispering_woods, actor_human_hunter):
         """Severe hostility should not exceed clamp."""
         reset_config()
+        now = time.time()
 
         # Create extreme hostility
-        for _ in range(10):
+        for i in range(10):
             event = AffinityEvent(
                 event_type="harm.fire",
                 actor_id=actor_human_hunter["actor_id"],
                 actor_tags=actor_human_hunter["actor_tags"],
                 location_id=whispering_woods.location_id,
                 intensity=1.0,
+                timestamp=now + i,
             )
             log_event(whispering_woods, event)
 
@@ -485,6 +574,7 @@ class TestSeverityClamp:
             location=whispering_woods,
             action_type="move.pass",
             action_target=None,
+            timestamp=now + 10,
         )
 
         outcome = evaluate_affordances(ctx)
@@ -492,3 +582,96 @@ class TestSeverityClamp:
         # Should be clamped to max (0.5 for pathing hostile)
         if outcome.triggered:
             assert outcome.adjustments["room.travel_time_modifier"] <= 0.5
+
+
+# --- Snapshot Contents Tests ---
+
+class TestSnapshotContents:
+    """Test that snapshots contain all required fields."""
+
+    def test_snapshot_has_eval_time(self, whispering_woods, actor_human_hunter):
+        """Snapshot must have eval_time for deterministic replay."""
+        reset_config()
+        now = 1234567890.0
+
+        event = AffinityEvent(
+            event_type="harm.fire",
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location_id=whispering_woods.location_id,
+            intensity=0.6,
+            timestamp=now,
+        )
+        log_event(whispering_woods, event)
+
+        ctx = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="move.pass",
+            action_target=None,
+            timestamp=now,
+        )
+
+        outcome = evaluate_affordances(ctx)
+
+        assert outcome.snapshot.eval_time == now
+
+    def test_snapshot_has_random_seed(self, whispering_woods, actor_human_hunter):
+        """Snapshot must have random_seed for deterministic tells."""
+        reset_config()
+        now = time.time()
+
+        event = AffinityEvent(
+            event_type="harm.fire",
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location_id=whispering_woods.location_id,
+            intensity=0.6,
+            timestamp=now,
+        )
+        log_event(whispering_woods, event)
+
+        ctx = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="move.pass",
+            action_target=None,
+            timestamp=now,
+        )
+
+        outcome = evaluate_affordances(ctx)
+
+        assert outcome.snapshot.random_seed is not None
+        assert isinstance(outcome.snapshot.random_seed, int)
+
+    def test_snapshot_has_effect_applied(self, whispering_woods, actor_human_hunter):
+        """Snapshot must have effect_applied (slow/swift/None)."""
+        reset_config()
+        now = time.time()
+
+        event = AffinityEvent(
+            event_type="harm.fire",
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location_id=whispering_woods.location_id,
+            intensity=0.6,
+            timestamp=now,
+        )
+        log_event(whispering_woods, event)
+
+        ctx = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="move.pass",
+            action_target=None,
+            timestamp=now,
+        )
+
+        outcome = evaluate_affordances(ctx)
+
+        # Should be "slow" for hostile
+        assert outcome.snapshot.effect_applied == "slow"
+        assert outcome.trace.effect_applied == "slow"

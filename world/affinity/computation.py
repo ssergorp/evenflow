@@ -6,13 +6,17 @@ See docs/affinity_spec.md §4.3-4.6 for specification.
 
 import math
 import time
-from typing import Dict, Set, Tuple
+from typing import Dict, Optional, Set, Tuple
 
 from world.affinity.core import TraceRecord, Location
 from world.affinity.config import get_config
 
 
-def get_decayed_value(trace: TraceRecord, half_life_seconds: float) -> float:
+def get_decayed_value(
+    trace: TraceRecord,
+    half_life_seconds: float,
+    now: Optional[float] = None
+) -> float:
     """
     Compute current value after exponential decay.
 
@@ -22,11 +26,15 @@ def get_decayed_value(trace: TraceRecord, half_life_seconds: float) -> float:
     Args:
         trace: The trace record to decay
         half_life_seconds: Half-life in seconds
+        now: Evaluation time. If None, uses current time.
+             Pass explicit value for deterministic replay.
 
     Returns:
-        Decayed value at current time
+        Decayed value at specified time
     """
-    elapsed = time.time() - trace.last_updated
+    if now is None:
+        now = time.time()
+    elapsed = now - trace.last_updated
     if elapsed <= 0:
         return trace.accumulated
     decay_factor = 0.5 ** (elapsed / half_life_seconds)
@@ -66,7 +74,8 @@ def score_personal(
     traces: Dict[Tuple[str, str], TraceRecord],
     actor_id: str,
     half_life_seconds: float,
-    profile: Dict[str, float]
+    profile: Dict[str, float],
+    now: Optional[float] = None
 ) -> float:
     """
     Score personal channel for a specific actor.
@@ -79,6 +88,7 @@ def score_personal(
         actor_id: The actor to score for
         half_life_seconds: Decay half-life
         profile: Location's valuation profile
+        now: Evaluation time for deterministic replay
 
     Returns:
         Weighted score for personal channel
@@ -87,7 +97,7 @@ def score_personal(
     for (trace_actor_id, event_type), trace in traces.items():
         if trace_actor_id != actor_id:
             continue
-        value = get_decayed_value(trace, half_life_seconds)
+        value = get_decayed_value(trace, half_life_seconds, now)
         valuation = get_valuation(profile, event_type)
         score += value * valuation
     return score
@@ -97,7 +107,8 @@ def score_group(
     traces: Dict[Tuple[str, str], TraceRecord],
     actor_tags: Set[str],
     half_life_seconds: float,
-    profile: Dict[str, float]
+    profile: Dict[str, float],
+    now: Optional[float] = None
 ) -> float:
     """
     Score group channel for an actor's tags.
@@ -110,6 +121,7 @@ def score_group(
         actor_tags: The actor's categorical tags
         half_life_seconds: Decay half-life
         profile: Location's valuation profile
+        now: Evaluation time for deterministic replay
 
     Returns:
         Weighted score for group channel
@@ -118,7 +130,7 @@ def score_group(
     for (trace_tag, event_type), trace in traces.items():
         if trace_tag not in actor_tags:
             continue
-        value = get_decayed_value(trace, half_life_seconds)
+        value = get_decayed_value(trace, half_life_seconds, now)
         valuation = get_valuation(profile, event_type)
         score += value * valuation
     return score
@@ -127,7 +139,8 @@ def score_group(
 def score_behavior(
     traces: Dict[str, TraceRecord],
     half_life_seconds: float,
-    profile: Dict[str, float]
+    profile: Dict[str, float],
+    now: Optional[float] = None
 ) -> float:
     """
     Score behavior channel (general place character).
@@ -139,13 +152,14 @@ def score_behavior(
         traces: Behavior trace dict
         half_life_seconds: Decay half-life
         profile: Location's valuation profile
+        now: Evaluation time for deterministic replay
 
     Returns:
         Weighted score for behavior channel
     """
     score = 0.0
     for event_type, trace in traces.items():
-        value = get_decayed_value(trace, half_life_seconds)
+        value = get_decayed_value(trace, half_life_seconds, now)
         valuation = get_valuation(profile, event_type)
         score += value * valuation
     return score
@@ -154,7 +168,8 @@ def score_behavior(
 def compute_affinity(
     location: Location,
     actor_id: str,
-    actor_tags: Set[str]
+    actor_tags: Set[str],
+    now: Optional[float] = None
 ) -> float:
     """
     Compute affinity for an actor at a location.
@@ -169,6 +184,7 @@ def compute_affinity(
         location: The location to compute affinity for
         actor_id: The actor's unique ID
         actor_tags: The actor's categorical tags
+        now: Evaluation time for deterministic replay
 
     Returns:
         Affinity value in range [-1.0, 1.0]
@@ -185,20 +201,23 @@ def compute_affinity(
         location.personal_traces,
         actor_id,
         personal_half_life,
-        profile
+        profile,
+        now
     )
 
     group = score_group(
         location.group_traces,
         actor_tags,
         group_half_life,
-        profile
+        profile,
+        now
     )
 
     behavior = score_behavior(
         location.behavior_traces,
         behavior_half_life,
-        profile
+        profile,
+        now
     )
 
     # Blend channels with configured weights

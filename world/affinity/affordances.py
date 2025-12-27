@@ -21,6 +21,9 @@ from world.affinity.computation import (
     get_threshold_label,
     get_decayed_value,
     get_valuation,
+    score_personal,
+    score_group,
+    score_behavior,
 )
 from world.affinity.config import get_config
 
@@ -51,7 +54,7 @@ class AffordanceTriggerLog:
     location_id: str
     actor_id: str
     affordance_type: str
-    effect_applied: Optional[str]
+    effect_applied: Optional[str]  # "slow", "swift", None - the actual effect
     severity: float
     contributing_traces: List[TraceContribution]
     computed_affinity: float
@@ -73,6 +76,9 @@ class AffordanceSnapshot:
     actor_tags: Set[str]
     location_id: str
 
+    # Frozen evaluation time - ALL decay computed against this
+    eval_time: float
+
     # Trace state (frozen at trigger time)
     personal_traces: Dict[Tuple[str, str], TraceRecord]
     group_traces: Dict[Tuple[str, str], TraceRecord]
@@ -88,13 +94,14 @@ class AffordanceSnapshot:
     channel_weight_behavior: float
     affinity_scale: float
 
-    # Random seed if any stochastic elements
-    random_seed: Optional[int]
+    # Random seed for deterministic tell selection
+    random_seed: int
 
     # Computed results (for verification)
     computed_affinity: float
     threshold_crossed: str
     affordance_triggered: Optional[str]
+    effect_applied: Optional[str]
 
 
 @dataclass
@@ -140,26 +147,28 @@ class AffordanceOutcome:
     triggered: bool
 
 
-def _is_cooldown_active(location: Location, cooldown_key: str) -> bool:
+def _is_cooldown_active(location: Location, cooldown_key: str, now: float) -> bool:
     """Check if a cooldown is still active."""
     if cooldown_key not in location.cooldowns:
         return False
-    return location.cooldowns[cooldown_key] > time.time()
+    return location.cooldowns[cooldown_key] > now
 
 
 def _consume_cooldown(
     location: Location,
     cooldown_key: str,
-    cooldown_seconds: int
+    cooldown_seconds: int,
+    now: float
 ) -> None:
     """Consume a cooldown, setting its expiry."""
-    location.cooldowns[cooldown_key] = time.time() + cooldown_seconds
+    location.cooldowns[cooldown_key] = now + cooldown_seconds
 
 
 def _compute_contributing_traces(
     location: Location,
     actor_id: str,
-    actor_tags: Set[str]
+    actor_tags: Set[str],
+    now: float
 ) -> List[TraceContribution]:
     """
     Compute which traces contributed most to the affinity.
@@ -174,7 +183,7 @@ def _compute_contributing_traces(
     for (trace_actor_id, event_type), trace in location.personal_traces.items():
         if trace_actor_id != actor_id:
             continue
-        decayed = get_decayed_value(trace, personal_half_life)
+        decayed = get_decayed_value(trace, personal_half_life, now)
         valuation = get_valuation(profile, event_type)
         weighted = decayed * valuation * config.channel_weights.personal
         contributions.append(TraceContribution(
@@ -190,7 +199,7 @@ def _compute_contributing_traces(
     for (trace_tag, event_type), trace in location.group_traces.items():
         if trace_tag not in actor_tags:
             continue
-        decayed = get_decayed_value(trace, group_half_life)
+        decayed = get_decayed_value(trace, group_half_life, now)
         valuation = get_valuation(profile, event_type)
         weighted = decayed * valuation * config.channel_weights.group
         contributions.append(TraceContribution(
@@ -204,7 +213,7 @@ def _compute_contributing_traces(
     # Behavior channel
     behavior_half_life = config.half_lives.location.behavior * 86400
     for event_type, trace in location.behavior_traces.items():
-        decayed = get_decayed_value(trace, behavior_half_life)
+        decayed = get_decayed_value(trace, behavior_half_life, now)
         valuation = get_valuation(profile, event_type)
         weighted = decayed * valuation * config.channel_weights.behavior
         contributions.append(TraceContribution(
@@ -226,7 +235,8 @@ def _create_snapshot(
     affinity: float,
     threshold: str,
     affordance_type: Optional[str],
-    random_seed: Optional[int] = None
+    effect: Optional[str],
+    random_seed: int
 ) -> AffordanceSnapshot:
     """
     Create a snapshot for deterministic replay.
@@ -239,6 +249,9 @@ def _create_snapshot(
         actor_id=ctx.actor_id,
         actor_tags=set(ctx.actor_tags),  # Copy
         location_id=ctx.location.location_id,
+
+        # Freeze evaluation time
+        eval_time=ctx.timestamp,
 
         # Deep copy traces so snapshot is frozen
         personal_traces=deepcopy(ctx.location.personal_traces),
@@ -260,7 +273,8 @@ def _create_snapshot(
 
         computed_affinity=affinity,
         threshold_crossed=threshold,
-        affordance_triggered=affordance_type
+        affordance_triggered=affordance_type,
+        effect_applied=effect
     )
 
 
@@ -268,7 +282,8 @@ def _evaluate_pathing(
     ctx: AffordanceContext,
     affordance_config: AffordanceConfig,
     affinity: float,
-    threshold: str
+    threshold: str,
+    rng: random.Random
 ) -> Tuple[Dict[str, float], List[str], Optional[str]]:
     """
     Evaluate the pathing affordance.
@@ -277,6 +292,9 @@ def _evaluate_pathing(
     - Handle: room.travel_time_modifier
     - Hostile: paths twist, travel takes longer
     - Favorable: shortcuts appear, travel is swift
+
+    Args:
+        rng: Seeded RNG for deterministic tell selection
     """
     adjustments = {}
     tells = []
@@ -290,7 +308,7 @@ def _evaluate_pathing(
             abs(affinity) * affordance_config.severity_clamp_hostile / 0.7
         )
         adjustments[affordance_config.mechanical_handle] = severity
-        tells.append(random.choice(affordance_config.tells_hostile))
+        tells.append(rng.choice(affordance_config.tells_hostile))
         effect = "slow"
 
     elif threshold == "unwelcoming":
@@ -300,7 +318,7 @@ def _evaluate_pathing(
             abs(affinity) * affordance_config.severity_clamp_hostile / 0.7
         )
         adjustments[affordance_config.mechanical_handle] = severity
-        tells.append(random.choice(affordance_config.tells_hostile))
+        tells.append(rng.choice(affordance_config.tells_hostile))
         effect = "slow"
 
     elif threshold == "favorable":
@@ -310,13 +328,13 @@ def _evaluate_pathing(
             -abs(affinity) * abs(affordance_config.severity_clamp_favorable) / 0.7
         )
         adjustments[affordance_config.mechanical_handle] = severity
-        tells.append(random.choice(affordance_config.tells_favorable))
+        tells.append(rng.choice(affordance_config.tells_favorable))
         effect = "swift"
 
     elif threshold == "aligned":
         # Full favorable effect
         adjustments[affordance_config.mechanical_handle] = affordance_config.severity_clamp_favorable
-        tells.append(random.choice(affordance_config.tells_favorable))
+        tells.append(rng.choice(affordance_config.tells_favorable))
         effect = "swift"
 
     # Neutral: no effect
@@ -340,21 +358,30 @@ def evaluate_affordances(ctx: AffordanceContext) -> AffordanceOutcome:
     Returns:
         AffordanceOutcome with adjustments, tells, trace, and snapshot
     """
-    # 1. Compute affinity
+    now = ctx.timestamp
+
+    # Create seeded RNG for deterministic tell selection
+    # Seed based on context so replay produces same tells
+    random_seed = hash((ctx.actor_id, ctx.location.location_id, int(ctx.timestamp * 1000)))
+    rng = random.Random(random_seed)
+
+    # 1. Compute affinity (with frozen time)
     affinity = compute_affinity(
         ctx.location,
         ctx.actor_id,
-        ctx.actor_tags
+        ctx.actor_tags,
+        now
     )
 
     # 2. Check threshold
     threshold = get_threshold_label(affinity)
 
-    # Compute contributing traces for debugging
+    # Compute contributing traces for debugging (with frozen time)
     contributions = _compute_contributing_traces(
         ctx.location,
         ctx.actor_id,
-        ctx.actor_tags
+        ctx.actor_tags,
+        now
     )
 
     # Initialize outcome
@@ -363,6 +390,7 @@ def evaluate_affordances(ctx: AffordanceContext) -> AffordanceOutcome:
     all_cooldowns = []
     triggered = False
     triggered_affordance = None
+    triggered_effect = None
 
     # 3-4. Evaluate each enabled affordance
     for aff_config in ctx.location.affordances:
@@ -371,18 +399,18 @@ def evaluate_affordances(ctx: AffordanceContext) -> AffordanceOutcome:
 
         # Check cooldown
         cooldown_key = f"{aff_config.affordance_type}:{ctx.actor_id}:{ctx.location.location_id}"
-        if _is_cooldown_active(ctx.location, cooldown_key):
+        if _is_cooldown_active(ctx.location, cooldown_key, now):
             continue
 
         # Evaluate based on affordance type
         if aff_config.affordance_type == "pathing":
             adjustments, tells, effect = _evaluate_pathing(
-                ctx, aff_config, affinity, threshold
+                ctx, aff_config, affinity, threshold, rng
             )
 
             if adjustments:
                 # Consume cooldown
-                _consume_cooldown(ctx.location, cooldown_key, aff_config.cooldown_seconds)
+                _consume_cooldown(ctx.location, cooldown_key, aff_config.cooldown_seconds, now)
                 all_cooldowns.append(cooldown_key)
 
                 # Merge results (max 2 handles enforced by config validation)
@@ -390,14 +418,15 @@ def evaluate_affordances(ctx: AffordanceContext) -> AffordanceOutcome:
                 all_tells.extend(tells)
                 triggered = True
                 triggered_affordance = aff_config.affordance_type
+                triggered_effect = effect
 
     # 5. Build trace log
     trace = AffordanceTriggerLog(
-        timestamp=ctx.timestamp,
+        timestamp=now,
         location_id=ctx.location.location_id,
         actor_id=ctx.actor_id,
         affordance_type=triggered_affordance or "none",
-        effect_applied=triggered_affordance,
+        effect_applied=triggered_effect,  # "slow", "swift", or None
         severity=list(all_adjustments.values())[0] if all_adjustments else 0.0,
         contributing_traces=contributions,
         computed_affinity=affinity,
@@ -409,7 +438,9 @@ def evaluate_affordances(ctx: AffordanceContext) -> AffordanceOutcome:
         ctx,
         affinity,
         threshold,
-        triggered_affordance
+        triggered_affordance,
+        triggered_effect,
+        random_seed
     )
 
     return AffordanceOutcome(
@@ -429,38 +460,39 @@ def replay_from_snapshot(snapshot: AffordanceSnapshot) -> float:
     MUST return identical result to original computation.
     See DO_NOT.md #6: Non-deterministic replay is forbidden.
 
+    Uses snapshot.eval_time for all decay calculations.
+
     Args:
         snapshot: Frozen state at trigger time
 
     Returns:
-        Recomputed affinity (must match snapshot.computed_affinity)
+        Recomputed affinity (must match snapshot.computed_affinity exactly)
     """
-    from world.affinity.computation import (
-        score_personal,
-        score_group,
-        score_behavior,
-    )
     import math
 
     # Use ONLY snapshot data, never current state
+    # Crucially: use snapshot.eval_time for all decay
     personal = score_personal(
         snapshot.personal_traces,
         snapshot.actor_id,
         snapshot.half_lives_personal,
-        snapshot.valuation_profile
+        snapshot.valuation_profile,
+        now=snapshot.eval_time  # Frozen time
     )
 
     group = score_group(
         snapshot.group_traces,
         snapshot.actor_tags,
         snapshot.half_lives_group,
-        snapshot.valuation_profile
+        snapshot.valuation_profile,
+        now=snapshot.eval_time  # Frozen time
     )
 
     behavior = score_behavior(
         snapshot.behavior_traces,
         snapshot.half_lives_behavior,
-        snapshot.valuation_profile
+        snapshot.valuation_profile,
+        now=snapshot.eval_time  # Frozen time
     )
 
     raw = (
@@ -470,3 +502,23 @@ def replay_from_snapshot(snapshot: AffordanceSnapshot) -> float:
     )
 
     return math.tanh(raw / snapshot.affinity_scale)
+
+
+def replay_tells_from_snapshot(snapshot: AffordanceSnapshot) -> List[str]:
+    """
+    Replay tell selection from a frozen snapshot.
+
+    Uses the same seeded RNG to produce identical tells.
+
+    Args:
+        snapshot: Frozen state at trigger time
+
+    Returns:
+        List of tells that would have been selected
+    """
+    # Recreate same RNG from stored seed
+    rng = random.Random(snapshot.random_seed)
+
+    # Would need affordance config to fully replay tells
+    # This is a placeholder for full outcome replay
+    return []
