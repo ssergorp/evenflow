@@ -1,0 +1,135 @@
+# Whispering Woods - Golden Path Vertical Slice
+# This is the canonical testbed for the affinity system.
+# All new affordances and behaviors should be validated here first.
+
+location_id: whispering_woods
+name: The Whispering Woods
+description: |
+  An ancient forest where the trees seem to watch and remember.
+  Those who harm the woods find the paths grow longer.
+  Those who honor the old ways find unexpected clearings.
+
+# Valuation profile: what this place cares about
+# Category weights are soft defaults (±0.1-0.2)
+# Specific events carry stronger opinions (±0.3-0.8)
+valuation_profile:
+  # Category defaults (soft)
+  harm: -0.15
+  extract: -0.1
+  offer: 0.15
+  create: 0.1
+
+  # Specific strong opinions
+  harm.fire: -0.8        # Fire is anathema
+  harm.poison: -0.5      # Poison is deeply wrong
+  extract.hunt: -0.4     # Hunting disturbs the balance
+  extract.harvest: -0.2  # Harvesting is tolerable
+  offer.gift: 0.5        # Gifts are appreciated
+  offer.sacrifice: 0.3   # Sacrifice is respected
+  create.plant: 0.6      # Planting is beloved
+  create.ritual: 0.4     # Ritual honors the old ways
+
+# Initial state (empty forest, neutral to all)
+initial_traces:
+  personal: {}
+  group: {}
+  behavior: {}
+
+# Affordances active in this location
+affordances:
+  - type: pathing
+    enabled: true
+    mechanical_handle: room.travel_time_modifier
+    severity_clamp:
+      hostile: 0.5     # +50% travel time at worst
+      favorable: -0.3  # -30% travel time at best
+    cooldown_seconds: 3600  # 1 hour
+    tells:
+      hostile:
+        - "The path seems to twist away from you."
+        - "Branches catch at your pack."
+        - "You could swear that tree wasn't there before."
+      favorable:
+        - "A clear path opens through the underbrush."
+        - "The trees seem to lean aside."
+        - "You find a shortcut you've never noticed."
+
+  - type: encounter_rate
+    enabled: true
+    mechanical_handle: room.encounter_rate_modifier
+    severity_clamp:
+      hostile: 2.0     # 2x encounter rate
+      favorable: 0.5   # 0.5x encounter rate
+    cooldown_seconds: 1800  # 30 min
+    tells:
+      hostile:
+        - "Something watches from the shadows."
+        - "You hear movement in the brush."
+      favorable:
+        - "The forest feels quiet, peaceful."
+        - "Small creatures go about their business, ignoring you."
+
+  - type: rest_quality
+    enabled: true
+    mechanical_handle: rest.healing_modifier
+    severity_clamp:
+      hostile: -0.3    # -30% healing
+      favorable: 0.3   # +30% healing
+    cooldown_seconds: 28800  # 8 hours
+    tells:
+      hostile:
+        - "Your sleep is troubled by uneasy dreams."
+        - "You wake feeling watched."
+      favorable:
+        - "You sleep deeply, cradled by the forest."
+        - "You wake refreshed, dew on your face."
+
+# Counterplay patterns that work here
+counterplay:
+  - event_type: offer.gift
+    description: "Leave appropriate offerings (food, flowers, crafted items)"
+    effectiveness: 0.5
+
+  - event_type: create.plant
+    description: "Plant seeds or saplings"
+    effectiveness: 0.6
+
+  - event_type: create.ritual
+    description: "Perform forest rituals at dawn or dusk"
+    effectiveness: 0.4
+
+  - abstention:
+    description: "Stay away and let personal traces decay"
+    half_life_days: 7
+
+# Test scenarios for this location
+test_scenarios:
+  - name: "fire_then_gift"
+    description: "Player burns forest, then brings offerings over time"
+    events:
+      - { type: "harm.fire", intensity: 0.6, day: 0 }
+      - { type: "offer.gift", intensity: 0.5, day: 3 }
+      - { type: "offer.gift", intensity: 0.5, day: 7 }
+      - { type: "offer.gift", intensity: 0.5, day: 14 }
+    expected_affinity:
+      day_1: -0.35   # Hostile after fire
+      day_7: -0.20   # Softening after first gift + decay
+      day_21: 0.05   # Near neutral after sustained offerings
+
+  - name: "persistent_hunter"
+    description: "Player hunts repeatedly, no counterplay"
+    events:
+      - { type: "extract.hunt", intensity: 0.4, day: 0 }
+      - { type: "extract.hunt", intensity: 0.4, day: 2 }
+      - { type: "extract.hunt", intensity: 0.4, day: 4 }
+    expected_affinity:
+      day_5: -0.25   # Unwelcoming
+      day_35: -0.12  # Decayed but not forgotten
+
+  - name: "respectful_visitor"
+    description: "Player passes through, leaves gifts"
+    events:
+      - { type: "move.pass", intensity: 0.1, day: 0 }
+      - { type: "offer.gift", intensity: 0.5, day: 0 }
+    expected_affinity:
+      day_1: 0.15    # Favorable

@@ -1,6 +1,6 @@
 # Affinity Specification
 
-**Version:** 0.3
+**Version:** 0.4
 **Target Platform:** Evennia
 **Purpose:** Define relationship intelligence as emergent world behavior
 
@@ -208,6 +208,16 @@ def get_valuation(profile: Dict[str, float], event_type: str) -> float:
 ```
 
 This keeps the model descriptive. The forest remembers "elf used fire here." Whether that's bad depends on the forest's values, not a global ethics table. Category fallbacks prevent silent 0.0 returns when new event types are added.
+
+**Magnitude guidelines:**
+
+| Level | Magnitude | Use For |
+|-------|-----------|---------|
+| Category defaults | ±0.1 to ±0.2 | Soft baseline ("harm is mildly bad") |
+| Specific events | ±0.3 to ±0.5 | Normal valuation ("hunting bothers me") |
+| Strong reactions | ±0.6 to ±0.8 | Defining traits ("fire is anathema here") |
+
+Keep category weights **small**. If you set `harm: -0.8`, the forest hates *all* harm equally—losing the nuance between a scraped knee and arson. Let exact event types carry the strong opinions.
 
 **Example event:**
 ```python
@@ -439,13 +449,13 @@ class ScarEvent:
 **Folding rules** (how keys collapse during compaction):
 
 ```python
-# Tag folding: which actor_tags survive warm rollup
-# Configurable per-world; typically race/faction only
-INSTITUTIONAL_TAGS = {"human", "elf", "dwarf", "orc", "imperial", "rebel"}
-
-def fold_actor_tag(tag: str) -> Optional[str]:
-    """Return tag if institutional, else None (discard)."""
-    return tag if tag in INSTITUTIONAL_TAGS else None
+def fold_actor_tag(tag: str, config: Config) -> Optional[str]:
+    """
+    Return tag if institutional, else None (discard).
+    INSTITUTIONAL_TAGS comes from config, not code—
+    allows fantasy worlds (elf, dwarf) and modern settings (corporate, union).
+    """
+    return tag if tag in config.institutional_tags else None
 
 # Category folding: event_type → event_category
 def fold_event_type(event_type: str) -> str:
@@ -522,7 +532,11 @@ Affinity values (per actor) range from -1.0 (hostile) to +1.0 (welcoming). Thres
 
 Affordances are the behavioral outputs of affinity. They modulate what happens, never what is said.
 
-**Mechanical handle requirement:** Each affordance must define what in-game variable it touches, or be explicitly marked "flavor only." This prevents implementation from inventing hidden RPG stats.
+**Mechanical handle requirements:**
+
+1. Each affordance must define what in-game variable it touches, or be explicitly marked "flavor only."
+2. No affordance may touch more than **two handles**. This preserves subtlety and keeps debugging sane.
+3. Handles should be existing game variables, not invented stats. If you need a new stat, that's a game design decision outside this spec.
 
 ### 5.1 Location Affordances
 
@@ -602,6 +616,59 @@ Players will try to weaponize the system. Anticipate:
 | **Institution manipulation** | Mass-coordinate to shift institutional stance | Inertia and slow drift resist rapid change |
 
 Design principle: **effort should scale with impact**. Shifting a forest's stance toward hostility requires sustained action, not one dramatic event.
+
+### 5.6 Unified Affordance Interface
+
+All affordance evaluation flows through a single contract:
+
+```python
+@dataclass
+class AffordanceContext:
+    """Input to affordance evaluation."""
+    actor_id: str
+    actor_tags: Set[str]
+    location: Location              # or Artifact
+    action_type: str                # what the actor is doing
+    action_target: Optional[str]    # target of action, if any
+    timestamp: float
+
+
+@dataclass
+class AffordanceOutcome:
+    """Output from affordance evaluation."""
+    # Mechanical adjustments (handle → delta)
+    adjustments: Dict[str, float]   # e.g., {"room.travel_time_modifier": 0.3}
+
+    # Narrative tells (strings for player-facing output)
+    tells: List[str]                # e.g., ["The path seems to twist away from you."]
+
+    # Admin trace payload (for debugging)
+    trace: AffordanceTriggerLog
+
+    # Cooldown tokens consumed
+    cooldowns_consumed: List[str]   # e.g., ["pathing:player_0042"]
+
+    # Whether any affordance actually fired
+    triggered: bool
+
+
+def evaluate_affordances(ctx: AffordanceContext) -> AffordanceOutcome:
+    """
+    Single entry point for all affordance checks.
+    1. Compute affinity for actor in location
+    2. Check thresholds
+    3. Check cooldowns
+    4. Apply severity clamps
+    5. Return mechanical + narrative + trace
+    """
+    ...
+```
+
+This interface ensures:
+- All affordance logic passes through one code path
+- Mechanical effects and narrative tells are always paired
+- Admin tracing is never forgotten
+- Cooldowns are consistently tracked
 
 ---
 
@@ -690,6 +757,39 @@ class TraceContribution:
 
 `replay` verifies determinism; `reeval` supports tuning.
 
+**Snapshot contents for replay:**
+
+A replay-capable snapshot must include everything needed to reproduce the exact computation:
+
+```python
+@dataclass
+class AffordanceSnapshot:
+    # Input state at trigger time
+    actor_id: str
+    actor_tags: Set[str]
+    location_id: str
+
+    # Trace state (frozen at trigger time)
+    personal_traces: Dict[Tuple[str, str], TraceRecord]
+    group_traces: Dict[Tuple[str, str], TraceRecord]
+    behavior_traces: Dict[str, TraceRecord]
+
+    # Entity config (frozen)
+    valuation_profile: Dict[str, float]
+    half_lives: HalfLifeConfig
+    channel_weights: ChannelWeights
+
+    # Random seed if any stochastic elements
+    random_seed: Optional[int]
+
+    # Computed results (for verification)
+    computed_affinity: float
+    threshold_crossed: str
+    affordance_triggered: str
+```
+
+Store this with each `AffordanceTriggerLog`. Replay reconstructs the computation from snapshot data, not current state.
+
 **Principle:** Admins can always answer "why did that happen?" without exposing it to players.
 
 ---
@@ -752,6 +852,16 @@ institutions:
   inertia: 0.9
   half_life_days: 90
   refresh_interval: 86400  # 1 day
+
+# Institutional tags: which actor_tags survive warm compaction
+# Configure per-world: fantasy (elf, dwarf), modern (corporate, union), etc.
+institutional_tags:
+  - human
+  - elf
+  - dwarf
+  - orc
+  - imperial
+  - rebel
 
 # Affinity scale (for tanh normalization)
 affinity_scale: 10.0
