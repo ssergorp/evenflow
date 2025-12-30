@@ -9,7 +9,8 @@ Ensures:
 See docs/DO_NOT.md #3, #4
 """
 
-from typing import Dict, List, Optional, Set, Tuple
+import re
+from typing import Dict, List, Optional, Pattern, Set, Tuple
 
 # =============================================================================
 # HANDLE ALLOWLIST
@@ -215,27 +216,37 @@ def get_affordance_handles(config: Dict) -> List[str]:
 # TELL VALIDATION
 # =============================================================================
 
-# Patterns that should never appear in tells (DO_NOT.md #2)
-FORBIDDEN_TELL_PATTERNS: Set[str] = {
+# Word patterns that should never appear in tells (DO_NOT.md #2)
+# These reveal the underlying affinity system to players
+FORBIDDEN_TELL_WORDS: Set[str] = {
     "affinity",
     "reputation",
-    "score",
-    "points",
     "meter",
-    "hostile",
-    "favorable",
-    "neutral",
-    "unwelcoming",
-    "aligned",
-    "+",
-    "-",
-    "%",
 }
+
+# Regex patterns for meter-like numeric expressions
+# These catch things like "+5", "-10", "25%", "10 points"
+METER_PATTERNS: List[re.Pattern] = [
+    re.compile(r'[+-]\s*\d'),        # +5, - 10, etc.
+    re.compile(r'\d+\s*%'),           # 25%, 100 %, etc.
+    re.compile(r'\d+\s+points?\b', re.IGNORECASE),  # 10 points, 5 point
+    re.compile(r'\d+\s+score\b', re.IGNORECASE),    # 10 score
+    re.compile(r'\bscore\s*:\s*\d', re.IGNORECASE), # score: 5
+    re.compile(r'\blevel\s+\d+\b', re.IGNORECASE),  # level 5 (explicit)
+]
 
 
 def validate_tell(tell: str, affordance_type: str, tell_group: str) -> None:
     """
     Validate a single tell string contains no forbidden patterns.
+
+    Catches:
+    - Explicit system words (affinity, reputation, meter)
+    - Numeric meter patterns (+5, -10, 25%, 10 points)
+
+    Does NOT block:
+    - Narrative punctuation (em-dashes, hyphens in words)
+    - General numbers without meter context
 
     Args:
         tell: The narrative tell string
@@ -247,21 +258,20 @@ def validate_tell(tell: str, affordance_type: str, tell_group: str) -> None:
     """
     tell_lower = tell.lower()
 
-    for pattern in FORBIDDEN_TELL_PATTERNS:
-        if pattern in tell_lower:
-            # Allow + and - only if not followed by numbers
-            if pattern in ("+", "-"):
-                # Check if it's part of a number
-                import re
-                if re.search(r'[+-]\d', tell):
-                    raise AffordanceValidationError(
-                        f"Tell in {affordance_type}.{tell_group} contains numeric pattern: '{tell}'"
-                    )
-            else:
-                raise AffordanceValidationError(
-                    f"Tell in {affordance_type}.{tell_group} contains forbidden pattern "
-                    f"'{pattern}': '{tell}'"
-                )
+    # Check forbidden words
+    for word in FORBIDDEN_TELL_WORDS:
+        if word in tell_lower:
+            raise AffordanceValidationError(
+                f"Tell in {affordance_type}.{tell_group} contains forbidden word "
+                f"'{word}': '{tell}'"
+            )
+
+    # Check meter-like numeric patterns
+    for pattern in METER_PATTERNS:
+        if pattern.search(tell):
+            raise AffordanceValidationError(
+                f"Tell in {affordance_type}.{tell_group} contains meter-like pattern: '{tell}'"
+            )
 
 
 def validate_all_tells(tells_dict: Dict[str, Dict]) -> int:

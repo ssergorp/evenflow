@@ -1384,6 +1384,80 @@ def verify_affinity_computation(snapshot: AffordanceSnapshot) -> bool:
     return recomputed == snapshot.computed_affinity
 
 
+class SnapshotVerificationError(Exception):
+    """Raised when snapshot verification fails."""
+    pass
+
+
+def replay_and_assert(snapshot: AffordanceSnapshot) -> ReplayResult:
+    """
+    Replay from snapshot and assert all values match recomputation.
+
+    This is the primary verification function for determinism.
+    Recomputes affinity from traces and asserts it matches stored value.
+
+    Args:
+        snapshot: The snapshot to verify
+
+    Returns:
+        ReplayResult with all stored values
+
+    Raises:
+        SnapshotVerificationError: If recomputed affinity doesn't match stored
+    """
+    import math
+
+    # Recompute affinity from traces
+    personal = score_personal(
+        snapshot.personal_traces,
+        snapshot.actor_id,
+        snapshot.half_lives_personal,
+        snapshot.valuation_profile,
+        now=snapshot.eval_time
+    )
+
+    group = score_group(
+        snapshot.group_traces,
+        snapshot.actor_tags,
+        snapshot.half_lives_group,
+        snapshot.valuation_profile,
+        now=snapshot.eval_time
+    )
+
+    behavior = score_behavior(
+        snapshot.behavior_traces,
+        snapshot.half_lives_behavior,
+        snapshot.valuation_profile,
+        now=snapshot.eval_time
+    )
+
+    raw = (
+        snapshot.channel_weight_personal * personal +
+        snapshot.channel_weight_group * group +
+        snapshot.channel_weight_behavior * behavior
+    )
+
+    recomputed = math.tanh(raw / snapshot.affinity_scale)
+
+    # Assert recomputed matches stored
+    if recomputed != snapshot.computed_affinity:
+        raise SnapshotVerificationError(
+            f"Affinity mismatch: recomputed={recomputed}, "
+            f"stored={snapshot.computed_affinity}"
+        )
+
+    # Return the stored values (guaranteed deterministic)
+    return ReplayResult(
+        computed_affinity=snapshot.computed_affinity,
+        threshold_crossed=snapshot.threshold_crossed,
+        adjustments=dict(snapshot.final_adjustments),
+        tells=list(snapshot.final_tells),
+        redirect_target=snapshot.final_redirect_target,
+        affordance_triggered=snapshot.affordance_triggered,
+        effect_applied=snapshot.effect_applied
+    )
+
+
 # =============================================================================
 # VALIDATION ON MODULE LOAD
 # =============================================================================
