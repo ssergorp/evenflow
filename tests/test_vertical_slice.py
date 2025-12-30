@@ -35,9 +35,9 @@ from world.affinity.config import get_config, reset_config
 from tests.helpers import (
     seed_personal_trace,
     compute_required_personal_trace,
-    get_affordance_threshold,
-    set_deterministic_probabilities,
-    restore_affordance_defaults,
+    get_thresholds,
+    deterministic_affordance,
+    freeze_time,
 )
 
 
@@ -239,56 +239,46 @@ class TestNeutralOutcome:
 class TestHostileOutcome:
     """Test that hostile affinity slows travelers."""
 
-    def test_fire_creates_hostility(self, whispering_woods, actor_human_hunter):
+    def test_fire_creates_hostility(self, monkeypatch, whispering_woods, actor_human_hunter):
         """A fire event should create negative affinity past hostile threshold."""
         reset_config()
-        now = time.time()
 
-        # Get the hostile threshold from config
-        hostile_threshold = get_affordance_threshold("pathing", "hostile")
-        target_affinity = hostile_threshold - 0.1  # Slightly past threshold
+        with freeze_time(monkeypatch, 1_700_000_000.0) as now:
+            # Get the hostile threshold from location config
+            hostile_threshold, _ = get_thresholds(whispering_woods, "pathing")
+            target_affinity = hostile_threshold - 0.1  # Slightly past threshold
 
-        # Compute required trace to reach target affinity
-        valuation = whispering_woods.valuation_profile["harm.fire"]  # -0.8
-        required_trace = compute_required_personal_trace(target_affinity, valuation)
+            # Compute required trace to reach target affinity
+            valuation = whispering_woods.valuation_profile["harm.fire"]  # -0.8
+            required_trace = compute_required_personal_trace(target_affinity, valuation)
 
-        # Seed the trace directly
-        seed_personal_trace(
-            whispering_woods,
-            actor_human_hunter["actor_id"],
-            "harm.fire",
-            required_trace,
-            now
-        )
+            # Seed the trace directly
+            seed_personal_trace(
+                whispering_woods,
+                actor_human_hunter["actor_id"],
+                "harm.fire",
+                required_trace,
+                now
+            )
 
-        affinity = compute_affinity(
-            whispering_woods,
-            actor_human_hunter["actor_id"],
-            actor_human_hunter["actor_tags"],
-            now=now
-        )
+            affinity = compute_affinity(
+                whispering_woods,
+                actor_human_hunter["actor_id"],
+                actor_human_hunter["actor_tags"],
+                now=now
+            )
 
-        # Should be past hostile threshold
-        assert affinity <= hostile_threshold
-        assert get_threshold_label(affinity) in ["hostile", "unwelcoming"]
+            # Should be past hostile threshold
+            assert affinity <= hostile_threshold
+            assert get_threshold_label(affinity) in ["hostile", "unwelcoming"]
 
-    def test_hostile_traveler_is_slowed(self, whispering_woods, actor_human_hunter):
+    def test_hostile_traveler_is_slowed(self, monkeypatch, whispering_woods, actor_human_hunter):
         """A hostile forest should slow the traveler."""
         reset_config()
-        set_deterministic_probabilities()  # Guarantee trigger
 
-        # Disable all affordances except pathing for this test
-        from world.affinity.affordances import admin_toggle_affordance
-        for aff in ["misleading_navigation", "encounter_bias", "resource_scarcity",
-                    "spell_side_effects", "rest_quality", "ambient_messaging",
-                    "loot_quality", "weather_microclimate", "animal_messengers"]:
-            admin_toggle_affordance(aff, False)
-
-        try:
-            now = time.time()
-
-            # Get threshold and compute required trace
-            hostile_threshold = get_affordance_threshold("pathing", "hostile")
+        with freeze_time(monkeypatch, 1_700_000_000.0) as now:
+            # Get threshold from location config
+            hostile_threshold, _ = get_thresholds(whispering_woods, "pathing")
             target_affinity = hostile_threshold - 0.15  # Past threshold
             valuation = whispering_woods.valuation_profile["harm.fire"]
             required_trace = compute_required_personal_trace(target_affinity, valuation)
@@ -302,38 +292,32 @@ class TestHostileOutcome:
                 now
             )
 
-            # Evaluate pathing
-            ctx = AffordanceContext(
-                actor_id=actor_human_hunter["actor_id"],
-                actor_tags=actor_human_hunter["actor_tags"],
-                location=whispering_woods,
-                action_type="move.pass",
-                action_target=None,
-                timestamp=now,
-            )
+            # Use context manager for deterministic affordance (disables others)
+            with deterministic_affordance(whispering_woods, "pathing"):
+                ctx = AffordanceContext(
+                    actor_id=actor_human_hunter["actor_id"],
+                    actor_tags=actor_human_hunter["actor_tags"],
+                    location=whispering_woods,
+                    action_type="move.pass",
+                    action_target=None,
+                    timestamp=now,
+                )
 
-            outcome = evaluate_affordances(ctx)
+                outcome = evaluate_affordances(ctx)
 
-            # Should be slowed (pathing affordance)
-            assert outcome.triggered is True
-            assert "room.travel_time_modifier" in outcome.adjustments
-            assert outcome.adjustments["room.travel_time_modifier"] > 0  # Positive = slower
-            assert len(outcome.tells) > 0
-            # Tell should be narrative, not a meter (DO_NOT.md #2)
-            for tell in outcome.tells:
-                assert "affinity" not in tell.lower()
-                assert "%" not in tell
+                # Should be slowed (pathing affordance)
+                assert outcome.triggered is True
+                assert "room.travel_time_modifier" in outcome.adjustments
+                assert outcome.adjustments["room.travel_time_modifier"] > 0  # Positive = slower
+                assert len(outcome.tells) > 0
+                # Tell should be narrative, not a meter (DO_NOT.md #2)
+                for tell in outcome.tells:
+                    assert "affinity" not in tell.lower()
+                    assert "%" not in tell
 
-            # Snapshot should record pathing's effect
-            assert outcome.snapshot.affordance_triggered == "pathing"
-            assert outcome.snapshot.effect_applied == "slow"
-        finally:
-            restore_affordance_defaults()
-            # Re-enable all affordances
-            for aff in ["misleading_navigation", "encounter_bias", "resource_scarcity",
-                        "spell_side_effects", "rest_quality", "ambient_messaging",
-                        "loot_quality", "weather_microclimate", "animal_messengers"]:
-                admin_toggle_affordance(aff, True)
+                # Snapshot should record pathing's effect
+                assert outcome.snapshot.affordance_triggered == "pathing"
+                assert outcome.snapshot.effect_applied == "slow"
 
 
 # --- Counterplay Tests ---
@@ -540,23 +524,13 @@ class TestReplayDeterminism:
 class TestCooldowns:
     """Test that cooldowns prevent repeated triggers."""
 
-    def test_cooldown_prevents_immediate_retrigger(self, whispering_woods, actor_human_hunter):
+    def test_cooldown_prevents_immediate_retrigger(self, monkeypatch, whispering_woods, actor_human_hunter):
         """Affordance should not trigger twice in a row."""
         reset_config()
-        set_deterministic_probabilities()  # Guarantee trigger
 
-        # Disable all affordances except pathing to test its cooldown
-        from world.affinity.affordances import admin_toggle_affordance
-        for aff in ["misleading_navigation", "encounter_bias", "resource_scarcity",
-                    "spell_side_effects", "rest_quality", "ambient_messaging",
-                    "loot_quality", "weather_microclimate", "animal_messengers"]:
-            admin_toggle_affordance(aff, False)
-
-        try:
-            now = time.time()
-
+        with freeze_time(monkeypatch, 1_700_000_000.0) as now:
             # Seed trace to guarantee hostile threshold is crossed
-            hostile_threshold = get_affordance_threshold("pathing", "hostile")
+            hostile_threshold, _ = get_thresholds(whispering_woods, "pathing")
             target_affinity = hostile_threshold - 0.2
             valuation = whispering_woods.valuation_profile["harm.fire"]
             required_trace = compute_required_personal_trace(target_affinity, valuation)
@@ -569,38 +543,33 @@ class TestCooldowns:
                 now
             )
 
-            ctx = AffordanceContext(
-                actor_id=actor_human_hunter["actor_id"],
-                actor_tags=actor_human_hunter["actor_tags"],
-                location=whispering_woods,
-                action_type="move.pass",
-                action_target=None,
-                timestamp=now,
-            )
+            with deterministic_affordance(whispering_woods, "pathing"):
+                ctx = AffordanceContext(
+                    actor_id=actor_human_hunter["actor_id"],
+                    actor_tags=actor_human_hunter["actor_tags"],
+                    location=whispering_woods,
+                    action_type="move.pass",
+                    action_target=None,
+                    timestamp=now,
+                )
 
-            # First evaluation triggers
-            outcome1 = evaluate_affordances(ctx)
-            assert outcome1.triggered is True
-            assert len(outcome1.cooldowns_consumed) > 0
+                # First evaluation triggers
+                outcome1 = evaluate_affordances(ctx)
+                assert outcome1.triggered is True
+                assert len(outcome1.cooldowns_consumed) > 0
 
-            # Second evaluation should not trigger (cooldown active)
-            ctx2 = AffordanceContext(
-                actor_id=actor_human_hunter["actor_id"],
-                actor_tags=actor_human_hunter["actor_tags"],
-                location=whispering_woods,
-                action_type="move.pass",
-                action_target=None,
-                timestamp=now + 1,  # 1 second later
-            )
-            outcome2 = evaluate_affordances(ctx2)
-            assert outcome2.triggered is False
-            assert outcome2.adjustments == {}
-        finally:
-            restore_affordance_defaults()
-            for aff in ["misleading_navigation", "encounter_bias", "resource_scarcity",
-                        "spell_side_effects", "rest_quality", "ambient_messaging",
-                        "loot_quality", "weather_microclimate", "animal_messengers"]:
-                admin_toggle_affordance(aff, True)
+                # Second evaluation should not trigger (cooldown active)
+                ctx2 = AffordanceContext(
+                    actor_id=actor_human_hunter["actor_id"],
+                    actor_tags=actor_human_hunter["actor_tags"],
+                    location=whispering_woods,
+                    action_type="move.pass",
+                    action_target=None,
+                    timestamp=now + 1,  # 1 second later
+                )
+                outcome2 = evaluate_affordances(ctx2)
+                assert outcome2.triggered is False
+                assert outcome2.adjustments == {}
 
 
 # --- Severity Clamp Tests ---
@@ -608,21 +577,11 @@ class TestCooldowns:
 class TestSeverityClamp:
     """Test that severity is clamped to configured limits."""
 
-    def test_hostile_clamped_to_max(self, whispering_woods, actor_human_hunter):
+    def test_hostile_clamped_to_max(self, monkeypatch, whispering_woods, actor_human_hunter):
         """Severe hostility should not exceed clamp."""
         reset_config()
-        set_deterministic_probabilities()
 
-        # Disable all affordances except pathing
-        from world.affinity.affordances import admin_toggle_affordance
-        for aff in ["misleading_navigation", "encounter_bias", "resource_scarcity",
-                    "spell_side_effects", "rest_quality", "ambient_messaging",
-                    "loot_quality", "weather_microclimate", "animal_messengers"]:
-            admin_toggle_affordance(aff, False)
-
-        try:
-            now = time.time()
-
+        with freeze_time(monkeypatch, 1_700_000_000.0) as now:
             # Create extreme hostility - seed a very negative trace
             # Target affinity close to -1.0
             valuation = whispering_woods.valuation_profile["harm.fire"]
@@ -636,27 +595,22 @@ class TestSeverityClamp:
                 now
             )
 
-            ctx = AffordanceContext(
-                actor_id=actor_human_hunter["actor_id"],
-                actor_tags=actor_human_hunter["actor_tags"],
-                location=whispering_woods,
-                action_type="move.pass",
-                action_target=None,
-                timestamp=now,
-            )
+            with deterministic_affordance(whispering_woods, "pathing"):
+                ctx = AffordanceContext(
+                    actor_id=actor_human_hunter["actor_id"],
+                    actor_tags=actor_human_hunter["actor_tags"],
+                    location=whispering_woods,
+                    action_type="move.pass",
+                    action_target=None,
+                    timestamp=now,
+                )
 
-            outcome = evaluate_affordances(ctx)
+                outcome = evaluate_affordances(ctx)
 
-            # Should be clamped to max (0.5 for pathing hostile)
-            assert outcome.triggered is True
-            assert "room.travel_time_modifier" in outcome.adjustments
-            assert outcome.adjustments["room.travel_time_modifier"] <= 0.5
-        finally:
-            restore_affordance_defaults()
-            for aff in ["misleading_navigation", "encounter_bias", "resource_scarcity",
-                        "spell_side_effects", "rest_quality", "ambient_messaging",
-                        "loot_quality", "weather_microclimate", "animal_messengers"]:
-                admin_toggle_affordance(aff, True)
+                # Should be clamped to max (0.5 for pathing hostile)
+                assert outcome.triggered is True
+                assert "room.travel_time_modifier" in outcome.adjustments
+                assert outcome.adjustments["room.travel_time_modifier"] <= 0.5
 
 
 # --- Snapshot Contents Tests ---
@@ -721,23 +675,13 @@ class TestSnapshotContents:
         assert outcome.snapshot.random_seed is not None
         assert isinstance(outcome.snapshot.random_seed, int)
 
-    def test_snapshot_has_effect_applied(self, whispering_woods, actor_human_hunter):
+    def test_snapshot_has_effect_applied(self, monkeypatch, whispering_woods, actor_human_hunter):
         """Snapshot must have effect_applied (slow/swift/None)."""
         reset_config()
-        set_deterministic_probabilities()
 
-        # Disable all affordances except pathing
-        from world.affinity.affordances import admin_toggle_affordance
-        for aff in ["misleading_navigation", "encounter_bias", "resource_scarcity",
-                    "spell_side_effects", "rest_quality", "ambient_messaging",
-                    "loot_quality", "weather_microclimate", "animal_messengers"]:
-            admin_toggle_affordance(aff, False)
-
-        try:
-            now = time.time()
-
+        with freeze_time(monkeypatch, 1_700_000_000.0) as now:
             # Seed trace to reach hostile threshold
-            hostile_threshold = get_affordance_threshold("pathing", "hostile")
+            hostile_threshold, _ = get_thresholds(whispering_woods, "pathing")
             target_affinity = hostile_threshold - 0.2
             valuation = whispering_woods.valuation_profile["harm.fire"]
             required_trace = compute_required_personal_trace(target_affinity, valuation)
@@ -750,26 +694,21 @@ class TestSnapshotContents:
                 now
             )
 
-            ctx = AffordanceContext(
-                actor_id=actor_human_hunter["actor_id"],
-                actor_tags=actor_human_hunter["actor_tags"],
-                location=whispering_woods,
-                action_type="move.pass",
-                action_target=None,
-                timestamp=now,
-            )
+            with deterministic_affordance(whispering_woods, "pathing"):
+                ctx = AffordanceContext(
+                    actor_id=actor_human_hunter["actor_id"],
+                    actor_tags=actor_human_hunter["actor_tags"],
+                    location=whispering_woods,
+                    action_type="move.pass",
+                    action_target=None,
+                    timestamp=now,
+                )
 
-            outcome = evaluate_affordances(ctx)
+                outcome = evaluate_affordances(ctx)
 
-            # Should be "slow" for hostile pathing
-            assert outcome.snapshot.effect_applied == "slow"
-            assert outcome.trace.effect_applied == "slow"
-        finally:
-            restore_affordance_defaults()
-            for aff in ["misleading_navigation", "encounter_bias", "resource_scarcity",
-                        "spell_side_effects", "rest_quality", "ambient_messaging",
-                        "loot_quality", "weather_microclimate", "animal_messengers"]:
-                admin_toggle_affordance(aff, True)
+                # Should be "slow" for hostile pathing
+                assert outcome.snapshot.effect_applied == "slow"
+                assert outcome.trace.effect_applied == "slow"
 
 
 # --- Admin Toggle Tests ---
@@ -816,50 +755,44 @@ class TestAdminToggles:
         # Re-enable for other tests
         admin_toggle_affordance("pathing", True)
 
-    def test_force_hostile_mode(self, whispering_woods, actor_human_hunter):
+    def test_force_hostile_mode(self, monkeypatch, whispering_woods, actor_human_hunter):
         """Force mode should override actual affinity."""
         reset_config()
-        set_deterministic_probabilities()
         from world.affinity.affordances import admin_force_mode
 
-        try:
-            now = time.time()
+        with freeze_time(monkeypatch, 1_700_000_000.0) as now:
+            with deterministic_affordance(whispering_woods, "pathing"):
+                # Force pathing to hostile (even with neutral affinity)
+                admin_force_mode("pathing", "hostile")
 
-            # Force pathing to hostile (even with neutral affinity)
-            admin_force_mode("pathing", "hostile")
+                try:
+                    ctx = AffordanceContext(
+                        actor_id=actor_human_hunter["actor_id"],
+                        actor_tags=actor_human_hunter["actor_tags"],
+                        location=whispering_woods,
+                        action_type="move.pass",
+                        action_target=None,
+                        timestamp=now,
+                    )
 
-            ctx = AffordanceContext(
-                actor_id=actor_human_hunter["actor_id"],
-                actor_tags=actor_human_hunter["actor_tags"],
-                location=whispering_woods,
-                action_type="move.pass",
-                action_target=None,
-                timestamp=now,
-            )
+                    outcome = evaluate_affordances(ctx)
 
-            outcome = evaluate_affordances(ctx)
+                    # Should trigger as hostile even though affinity is neutral
+                    assert outcome.triggered is True
+                    assert "room.travel_time_modifier" in outcome.adjustments
+                    assert outcome.adjustments["room.travel_time_modifier"] > 0
+                finally:
+                    # Clear force mode
+                    admin_force_mode("pathing", None)
 
-            # Should trigger as hostile even though affinity is neutral
-            assert outcome.triggered is True
-            assert "room.travel_time_modifier" in outcome.adjustments
-            assert outcome.adjustments["room.travel_time_modifier"] > 0
-
-            # Clear force mode
-            admin_force_mode("pathing", None)
-        finally:
-            restore_affordance_defaults()
-
-    def test_reset_cooldowns(self, whispering_woods, actor_human_hunter):
+    def test_reset_cooldowns(self, monkeypatch, whispering_woods, actor_human_hunter):
         """Admin should be able to clear cooldowns."""
         reset_config()
-        set_deterministic_probabilities()
         from world.affinity.affordances import admin_reset_cooldowns
 
-        try:
-            now = time.time()
-
+        with freeze_time(monkeypatch, 1_700_000_000.0) as now:
             # Seed trace to reach hostile threshold
-            hostile_threshold = get_affordance_threshold("pathing", "hostile")
+            hostile_threshold, _ = get_thresholds(whispering_woods, "pathing")
             target_affinity = hostile_threshold - 0.2
             valuation = whispering_woods.valuation_profile["harm.fire"]
             required_trace = compute_required_personal_trace(target_affinity, valuation)
@@ -872,34 +805,33 @@ class TestAdminToggles:
                 now
             )
 
-            ctx = AffordanceContext(
-                actor_id=actor_human_hunter["actor_id"],
-                actor_tags=actor_human_hunter["actor_tags"],
-                location=whispering_woods,
-                action_type="move.pass",
-                action_target=None,
-                timestamp=now,
-            )
+            with deterministic_affordance(whispering_woods, "pathing"):
+                ctx = AffordanceContext(
+                    actor_id=actor_human_hunter["actor_id"],
+                    actor_tags=actor_human_hunter["actor_tags"],
+                    location=whispering_woods,
+                    action_type="move.pass",
+                    action_target=None,
+                    timestamp=now,
+                )
 
-            outcome1 = evaluate_affordances(ctx)
-            assert outcome1.triggered is True
+                outcome1 = evaluate_affordances(ctx)
+                assert outcome1.triggered is True
 
-            # Reset cooldowns
-            admin_reset_cooldowns(whispering_woods)
+                # Reset cooldowns
+                admin_reset_cooldowns(whispering_woods)
 
-            # Should be able to trigger again
-            ctx2 = AffordanceContext(
-                actor_id=actor_human_hunter["actor_id"],
-                actor_tags=actor_human_hunter["actor_tags"],
-                location=whispering_woods,
-                action_type="move.pass",
-                action_target=None,
-                timestamp=now + 1,
-            )
-            outcome2 = evaluate_affordances(ctx2)
-            assert outcome2.triggered is True
-        finally:
-            restore_affordance_defaults()
+                # Should be able to trigger again
+                ctx2 = AffordanceContext(
+                    actor_id=actor_human_hunter["actor_id"],
+                    actor_tags=actor_human_hunter["actor_tags"],
+                    location=whispering_woods,
+                    action_type="move.pass",
+                    action_target=None,
+                    timestamp=now + 1,
+                )
+                outcome2 = evaluate_affordances(ctx2)
+                assert outcome2.triggered is True
 
 
 # --- Multiple Affordances Tests ---
