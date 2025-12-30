@@ -561,29 +561,36 @@ def _compute_contributing_traces(
 def _get_effective_threshold(
     affinity: float,
     affordance_type: str
-) -> Tuple[str, bool, bool]:
+) -> Tuple[str, bool, bool, float]:
     """
     Get effective threshold, checking force mode.
 
     Returns:
-        (threshold_label, is_hostile, is_favorable)
+        (threshold_label, is_hostile, is_favorable, effective_affinity)
+
+    When force_mode is active, effective_affinity is set to a value
+    past the threshold so severity calculation works correctly.
     """
     force = _FORCE_MODE.get(affordance_type)
-    if force == "hostile":
-        return ("hostile", True, False)
-    elif force == "favorable":
-        return ("aligned", False, True)
-
     defaults = AFFORDANCE_DEFAULTS.get(affordance_type, {})
     hostile_thresh = defaults.get("hostile_threshold", -0.3)
     favorable_thresh = defaults.get("favorable_threshold", 0.3)
 
+    if force == "hostile":
+        # Use midpoint between threshold and -1.0 for forced hostility
+        forced_affinity = (hostile_thresh + -1.0) / 2
+        return ("hostile", True, False, forced_affinity)
+    elif force == "favorable":
+        # Use midpoint between threshold and 1.0 for forced favor
+        forced_affinity = (favorable_thresh + 1.0) / 2
+        return ("aligned", False, True, forced_affinity)
+
     if affinity <= hostile_thresh:
-        return ("hostile", True, False)
+        return ("hostile", True, False, affinity)
     elif affinity >= favorable_thresh:
-        return ("favorable", False, True)
+        return ("favorable", False, True, affinity)
     else:
-        return ("neutral", False, False)
+        return ("neutral", False, False, affinity)
 
 
 def _scale_severity(
@@ -674,7 +681,7 @@ def _evaluate_pathing(
         return {}, [], None
 
     defaults = AFFORDANCE_DEFAULTS["pathing"]
-    threshold, is_hostile, is_favorable = _get_effective_threshold(affinity, "pathing")
+    threshold, is_hostile, is_favorable, eff_affinity = _get_effective_threshold(affinity, "pathing")
 
     if not is_hostile and not is_favorable:
         return {}, [], None
@@ -689,7 +696,7 @@ def _evaluate_pathing(
 
     if is_hostile:
         severity = _scale_severity(
-            affinity,
+            eff_affinity,
             defaults["hostile_clamp"],
             defaults["hostile_threshold"]
         )
@@ -698,7 +705,7 @@ def _evaluate_pathing(
         effect = "slow"
     elif is_favorable:
         severity = _scale_severity(
-            affinity,
+            eff_affinity,
             defaults["favorable_clamp"],
             defaults["favorable_threshold"]
         )
@@ -725,7 +732,7 @@ def _evaluate_misleading_navigation(
         return {}, [], None, None
 
     defaults = AFFORDANCE_DEFAULTS["misleading_navigation"]
-    threshold, is_hostile, is_favorable = _get_effective_threshold(
+    threshold, is_hostile, is_favorable, eff_affinity = _get_effective_threshold(
         affinity, "misleading_navigation"
     )
 
@@ -766,7 +773,7 @@ def _evaluate_encounter_bias(
         return {}, [], None
 
     defaults = AFFORDANCE_DEFAULTS["encounter_bias"]
-    threshold, is_hostile, is_favorable = _get_effective_threshold(
+    threshold, is_hostile, is_favorable, eff_affinity = _get_effective_threshold(
         affinity, "encounter_bias"
     )
 
@@ -783,7 +790,7 @@ def _evaluate_encounter_bias(
     if is_hostile:
         # Two handles: encounter rate and aggro radius
         severity = _scale_severity(
-            affinity,
+            eff_affinity,
             defaults["hostile_clamp"],
             defaults["hostile_threshold"]
         )
@@ -794,7 +801,7 @@ def _evaluate_encounter_bias(
         effect = "dangerous"
     elif is_favorable:
         severity = _scale_severity(
-            affinity,
+            eff_affinity,
             defaults["favorable_clamp"],
             defaults["favorable_threshold"]
         )
@@ -817,7 +824,7 @@ def _evaluate_resource_scarcity(
         return {}, [], None
 
     defaults = AFFORDANCE_DEFAULTS["resource_scarcity"]
-    threshold, is_hostile, is_favorable = _get_effective_threshold(
+    threshold, is_hostile, is_favorable, eff_affinity = _get_effective_threshold(
         affinity, "resource_scarcity"
     )
 
@@ -833,7 +840,7 @@ def _evaluate_resource_scarcity(
 
     if is_hostile:
         severity = _scale_severity(
-            affinity,
+            eff_affinity,
             defaults["hostile_clamp"],
             defaults["hostile_threshold"]
         )
@@ -842,7 +849,7 @@ def _evaluate_resource_scarcity(
         effect = "scarce"
     elif is_favorable:
         severity = _scale_severity(
-            affinity,
+            eff_affinity,
             defaults["favorable_clamp"],
             defaults["favorable_threshold"]
         )
@@ -864,7 +871,7 @@ def _evaluate_spell_side_effects(
         return {}, [], None
 
     defaults = AFFORDANCE_DEFAULTS["spell_side_effects"]
-    threshold, is_hostile, is_favorable = _get_effective_threshold(
+    threshold, is_hostile, is_favorable, eff_affinity = _get_effective_threshold(
         affinity, "spell_side_effects"
     )
 
@@ -889,7 +896,7 @@ def _evaluate_spell_side_effects(
 
     if is_hostile:
         severity = _scale_severity(
-            affinity,
+            eff_affinity,
             defaults["hostile_clamp"],
             defaults["hostile_threshold"]
         )
@@ -901,7 +908,7 @@ def _evaluate_spell_side_effects(
         effect = "dampened"
     elif is_favorable:
         severity = _scale_severity(
-            affinity,
+            eff_affinity,
             defaults["favorable_clamp"],
             defaults["favorable_threshold"]
         )
@@ -927,7 +934,7 @@ def _evaluate_rest_quality(
         return {}, [], None
 
     defaults = AFFORDANCE_DEFAULTS["rest_quality"]
-    threshold, is_hostile, is_favorable = _get_effective_threshold(
+    threshold, is_hostile, is_favorable, eff_affinity = _get_effective_threshold(
         affinity, "rest_quality"
     )
 
@@ -943,7 +950,7 @@ def _evaluate_rest_quality(
 
     if is_hostile:
         severity = _scale_severity(
-            affinity,
+            eff_affinity,
             defaults["hostile_clamp"],
             defaults["hostile_threshold"]
         )
@@ -952,7 +959,7 @@ def _evaluate_rest_quality(
         effect = "restless"
     elif is_favorable:
         severity = _scale_severity(
-            affinity,
+            eff_affinity,
             defaults["favorable_clamp"],
             defaults["favorable_threshold"]
         )
@@ -1022,7 +1029,7 @@ def _evaluate_loot_quality(
         return {}, [], None
 
     defaults = AFFORDANCE_DEFAULTS["loot_quality"]
-    threshold, is_hostile, is_favorable = _get_effective_threshold(
+    threshold, is_hostile, is_favorable, eff_affinity = _get_effective_threshold(
         affinity, "loot_quality"
     )
 
@@ -1038,7 +1045,7 @@ def _evaluate_loot_quality(
 
     if is_hostile:
         severity = _scale_severity(
-            affinity,
+            eff_affinity,
             defaults["hostile_clamp"],
             defaults["hostile_threshold"]
         )
@@ -1047,7 +1054,7 @@ def _evaluate_loot_quality(
         effect = "poor"
     elif is_favorable:
         severity = _scale_severity(
-            affinity,
+            eff_affinity,
             defaults["favorable_clamp"],
             defaults["favorable_threshold"]
         )
@@ -1069,7 +1076,7 @@ def _evaluate_weather_microclimate(
         return {}, [], None
 
     defaults = AFFORDANCE_DEFAULTS["weather_microclimate"]
-    threshold, is_hostile, is_favorable = _get_effective_threshold(
+    threshold, is_hostile, is_favorable, eff_affinity = _get_effective_threshold(
         affinity, "weather_microclimate"
     )
 
@@ -1103,7 +1110,7 @@ def _evaluate_animal_messengers(
         return {}, [], None
 
     defaults = AFFORDANCE_DEFAULTS["animal_messengers"]
-    threshold, is_hostile, is_favorable = _get_effective_threshold(
+    threshold, is_hostile, is_favorable, eff_affinity = _get_effective_threshold(
         affinity, "animal_messengers"
     )
 
