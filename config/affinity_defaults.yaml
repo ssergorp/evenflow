@@ -1,0 +1,735 @@
+# =============================================================================
+# Affinity System Defaults
+# =============================================================================
+# Design Philosophy: MYTHIC, NOT PUNITIVE
+#
+# - Places remember, but they're not scorekeepers
+# - Bad history creates resistance, not traps
+# - Good actions always have weight
+# - Recovery is achievable but takes effort
+# - No cliff edges; everything is gradual
+# - One dramatic mistake shouldn't doom a playthrough
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. PER-EVENT INTENSITY RANGES
+# -----------------------------------------------------------------------------
+# These are RECOMMENDED ranges, not hard limits. The game layer decides actual
+# intensity based on context. Use these for consistency across content.
+#
+# Principle: Common actions are low-intensity. Dramatic actions are rare.
+# A wolf attack is 0.3; burning down a sacred grove is 0.9.
+
+event_intensity:
+  # -- HARM --
+  # Violence and destruction. Most places dislike harm, but intensity varies.
+  harm:
+    physical:
+      min: 0.2
+      max: 0.6
+      typical: 0.35
+      note: "Fistfight: 0.2, weapon combat: 0.4, slaughter: 0.6"
+    fire:
+      min: 0.3
+      max: 0.9
+      typical: 0.5
+      note: "Campfire accident: 0.3, deliberate arson: 0.7, forest fire: 0.9"
+    poison:
+      min: 0.3
+      max: 0.7
+      typical: 0.4
+      note: "Water fouling: 0.4, mass poisoning: 0.7"
+    magical:
+      min: 0.3
+      max: 0.8
+      typical: 0.5
+      note: "Wild magic: 0.3, destructive spell: 0.5, blight: 0.8"
+
+  # -- HEALING --
+  # Restoration acts. Generally low-intensity; steady care matters more than
+  # dramatic gestures.
+  heal:
+    physical:
+      min: 0.1
+      max: 0.4
+      typical: 0.2
+      note: "Bandaging: 0.1, surgery: 0.3, saving a life: 0.4"
+    magical:
+      min: 0.2
+      max: 0.5
+      typical: 0.3
+      note: "Minor healing: 0.2, resurrection attempt: 0.5"
+    rest:
+      min: 0.05
+      max: 0.15
+      typical: 0.1
+      note: "Just being present, resting. Low but nonzero."
+
+  # -- DEATH --
+  # High-intensity by nature. Death scars places.
+  death:
+    combat:
+      min: 0.6
+      max: 1.0
+      typical: 0.8
+      note: "Single death: 0.6, battle: 0.9, massacre: 1.0"
+    sacrifice:
+      min: 0.7
+      max: 1.0
+      typical: 0.85
+      note: "Willing: 0.7, unwilling: 0.95, mass sacrifice: 1.0"
+    natural:
+      min: 0.3
+      max: 0.5
+      typical: 0.4
+      note: "Natural death is gentler to places"
+
+  # -- EXTRACTION --
+  # Taking from the land. Sustainable vs exploitative.
+  extract:
+    harvest:
+      min: 0.1
+      max: 0.4
+      typical: 0.2
+      note: "Picking berries: 0.1, clear-cutting: 0.4"
+    mine:
+      min: 0.2
+      max: 0.6
+      typical: 0.35
+      note: "Surface collection: 0.2, deep mining: 0.5"
+    hunt:
+      min: 0.2
+      max: 0.5
+      typical: 0.3
+      note: "One deer: 0.25, trophy hunting: 0.4, poaching: 0.5"
+    loot:
+      min: 0.3
+      max: 0.7
+      typical: 0.5
+      note: "Taking from the dead/ruins. Context matters."
+
+  # -- CREATION --
+  # Building, planting, making. Generally positive but intensity matters.
+  create:
+    build:
+      min: 0.2
+      max: 0.5
+      typical: 0.3
+      note: "Shelter: 0.2, permanent structure: 0.4"
+    plant:
+      min: 0.2
+      max: 0.5
+      typical: 0.35
+      note: "Single tree: 0.2, grove restoration: 0.5"
+    craft:
+      min: 0.1
+      max: 0.4
+      typical: 0.25
+      note: "Simple craft: 0.1, masterwork: 0.4"
+    ritual:
+      min: 0.3
+      max: 0.8
+      typical: 0.5
+      note: "Minor blessing: 0.3, major ceremony: 0.7"
+
+  # -- TRESPASS --
+  # Presence where unwanted. Low intensity unless defiling.
+  trespass:
+    enter:
+      min: 0.05
+      max: 0.3
+      typical: 0.15
+      note: "Just being there. Higher for sacred/forbidden places."
+    defile:
+      min: 0.4
+      max: 0.9
+      typical: 0.6
+      note: "Desecration of sacred space"
+    observe:
+      min: 0.02
+      max: 0.1
+      typical: 0.05
+      note: "Watching, spying. Very low but not zero."
+
+  # -- OFFERING --
+  # Gifts, sacrifices, devotion. Positive actions with variable weight.
+  offer:
+    gift:
+      min: 0.2
+      max: 0.6
+      typical: 0.4
+      note: "Token: 0.2, meaningful gift: 0.4, treasure: 0.6"
+    sacrifice:
+      min: 0.4
+      max: 0.9
+      typical: 0.6
+      note: "Minor sacrifice: 0.4, blood sacrifice: 0.7, life sacrifice: 0.9"
+    prayer:
+      min: 0.1
+      max: 0.3
+      typical: 0.2
+      note: "Sincere devotion. Low but consistent."
+
+  # -- COMMERCE --
+  # Trade, exchange. Generally neutral to positive.
+  trade:
+    fair:
+      min: 0.1
+      max: 0.3
+      typical: 0.2
+      note: "Honest trade. Markets like this."
+    exploit:
+      min: 0.2
+      max: 0.5
+      typical: 0.35
+      note: "Cheating, exploitative pricing"
+    gift:
+      min: 0.15
+      max: 0.4
+      typical: 0.25
+      note: "Trade-as-gift. Generosity."
+
+  # -- MAGIC --
+  # Spellwork. Intensity depends on spell power and intent.
+  magic:
+    cast:
+      min: 0.1
+      max: 0.6
+      typical: 0.3
+      note: "Cantrip: 0.1, major spell: 0.5"
+    summon:
+      min: 0.4
+      max: 0.8
+      typical: 0.6
+      note: "Calling entities. Places remember."
+    bind:
+      min: 0.5
+      max: 0.9
+      typical: 0.7
+      note: "Constraining spirits/entities. High impact."
+    dispel:
+      min: 0.2
+      max: 0.5
+      typical: 0.35
+      note: "Breaking magic. Depends on what's broken."
+
+  # -- SOCIAL --
+  # Interpersonal actions. Places witness these.
+  social:
+    aid:
+      min: 0.2
+      max: 0.5
+      typical: 0.3
+      note: "Helping others. Places notice kindness."
+    betray:
+      min: 0.4
+      max: 0.8
+      typical: 0.6
+      note: "Breaking trust. High weight."
+    honor:
+      min: 0.2
+      max: 0.5
+      typical: 0.35
+      note: "Keeping oaths, showing respect"
+    insult:
+      min: 0.1
+      max: 0.4
+      typical: 0.25
+      note: "Disrespect. Lower than physical harm."
+
+  # -- MOVEMENT --
+  # Passing through. Very low intensity; presence matters little.
+  move:
+    pass:
+      min: 0.02
+      max: 0.1
+      typical: 0.05
+      note: "Just walking through. Near-zero."
+    flee:
+      min: 0.05
+      max: 0.15
+      typical: 0.1
+      note: "Running away. Slightly more memorable."
+    pursue:
+      min: 0.1
+      max: 0.2
+      typical: 0.15
+      note: "Chasing someone through the area."
+
+
+# -----------------------------------------------------------------------------
+# 2. HALF-LIVES BY MEMORY CATEGORY
+# -----------------------------------------------------------------------------
+# How long entities remember. Mythic principle: personal forgiveness comes
+# faster than cultural change.
+#
+# Personal: "That specific person did X" - forgettable
+# Group: "Elves do X here" - cultural memory, slower
+# Behavior: "X happens in this place" - place character, slowest
+
+half_lives:
+  # Locations have the longest memory. They're old and patient.
+  location:
+    personal: 7      # days - forgive individuals within a week
+    group: 30        # days - cultural patterns persist a month
+    behavior: 90     # days - place character takes seasons to shift
+
+  # Artifacts bond faster, forget faster. More mercurial.
+  artifact:
+    personal: 3      # days - quickly learns/forgets bearer
+    group: 14        # days - origin loyalties fade in weeks
+    behavior: 30     # days - artifact nature evolves monthly
+
+  # NPCs have shortest memory. They're mortal and busy.
+  npc:
+    personal: 1      # day - individuals are forgettable
+    group: 7         # days - cultural memory persists a week
+    behavior: 14     # days - habits form over two weeks
+
+
+# -----------------------------------------------------------------------------
+# 3. CHANNEL WEIGHTS
+# -----------------------------------------------------------------------------
+# How much each memory channel contributes to affinity.
+# Personal dominates: "what you did matters most"
+# Group matters: "what your kind does here matters"
+# Behavior backgrounds: "what happens here generally"
+
+channel_weights:
+  personal: 0.50     # Your actions, your consequences
+  group: 0.35        # Your identity carries weight
+  behavior: 0.15     # The place's general mood
+
+
+# -----------------------------------------------------------------------------
+# 4. SATURATION CURVES
+# -----------------------------------------------------------------------------
+# Prevents runaway memory accumulation. A place can only hold so much.
+#
+# Capacity = how many "intensity units" before diminishing returns
+# Saturation dampening: new_intensity *= (1 - saturation^2)
+#   At 0% saturation: full impact
+#   At 50% saturation: 75% impact
+#   At 90% saturation: 19% impact
+
+saturation_capacity:
+  # Personal channel saturates quickly - one person can only be so memorable
+  personal: 50       # ~50 max-intensity events before saturation
+
+  # Group channel has more room - many individuals contribute
+  group: 100         # ~100 max-intensity events
+
+  # Behavior channel is vast - place character is deep
+  behavior: 200      # ~200 max-intensity events
+
+# How quickly saturation decays when no events occur (per day)
+saturation_decay_rate: 0.05   # 5% per day - slow return to sensitivity
+
+# Minimum saturation level after decay (prevents hyper-sensitivity)
+saturation_floor: 0.0
+
+
+# -----------------------------------------------------------------------------
+# 5. AFFINITY THRESHOLDS
+# -----------------------------------------------------------------------------
+# Maps computed affinity [-1.0, 1.0] to behavior bands.
+# Uses soft thresholds to prevent gaming "I'm at -0.29 so I'm safe"
+
+affinity_bands:
+  hostile:
+    range: [-1.0, -0.6]
+    label: "hostile"
+    note: "Active hindrance. Requires sustained negative action to reach."
+
+  unwelcoming:
+    range: [-0.6, -0.25]
+    label: "unwelcoming"
+    note: "Passive resistance. Easy to enter with bad behavior."
+
+  neutral:
+    range: [-0.25, 0.25]
+    label: "neutral"
+    note: "Default state. No modification."
+
+  favorable:
+    range: [0.25, 0.6]
+    label: "favorable"
+    note: "Passive assistance. Requires consistent positive action."
+
+  aligned:
+    range: [0.6, 1.0]
+    label: "aligned"
+    note: "Active cooperation. Hard to achieve, easy to lose."
+
+
+# -----------------------------------------------------------------------------
+# 6. AFFORDANCE DEFINITIONS
+# -----------------------------------------------------------------------------
+# Each affordance defines: what it touches, base probability, cooldown,
+# severity clamps, and threshold requirements.
+
+affordances:
+  # -- PATHING --
+  # Travel time modification. The woods twist, or shortcuts appear.
+  pathing:
+    enabled: true
+    handle: "room.travel_time_modifier"
+
+    # Base chance of triggering when threshold met
+    base_probability: 0.7
+
+    # Cooldown prevents spamming (seconds)
+    cooldown_seconds: 3600    # 1 hour
+
+    # Severity clamps: max effect magnitude
+    hostile_clamp: 0.5        # +50% travel time max
+    favorable_clamp: -0.3     # -30% travel time max
+
+    # Affinity thresholds for activation
+    hostile_threshold: -0.3   # Below this: paths twist
+    favorable_threshold: 0.3  # Above this: shortcuts appear
+
+    # Scaling within band (linear interpolation)
+    scales_with_affinity: true
+
+    tells:
+      hostile:
+        - "The path seems to shift as you walk."
+        - "Branches catch at your clothes."
+        - "You could swear that rock wasn't there before."
+        - "The trail doubles back unexpectedly."
+      favorable:
+        - "An easy path opens through the undergrowth."
+        - "The way forward is unusually clear."
+        - "Your feet find sure footing."
+        - "A game trail appears, heading your direction."
+
+  # -- ENCOUNTER RATE --
+  # Frequency of hostile/peaceful encounters.
+  encounter_rate:
+    enabled: true
+    handle: "room.encounter_rate_modifier"
+
+    base_probability: 0.6
+    cooldown_seconds: 1800    # 30 minutes
+
+    hostile_clamp: 1.0        # 2x encounter rate max (doubled)
+    favorable_clamp: -0.5     # 0.5x encounter rate max (halved)
+
+    hostile_threshold: -0.4
+    favorable_threshold: 0.4
+    scales_with_affinity: true
+
+    tells:
+      hostile:
+        - "Something watches from the shadows."
+        - "You hear movement in the brush."
+        - "The wildlife here seems... agitated."
+      favorable:
+        - "The area feels strangely peaceful."
+        - "You sense no threat nearby."
+        - "The usual dangers seem distant."
+
+  # -- SPELL EFFICACY --
+  # Magic works better or worse here.
+  spell_efficacy:
+    enabled: true
+    handle: "spell.power_modifier"
+
+    base_probability: 0.5
+    cooldown_seconds: 0       # Per-spell, no location cooldown
+
+    hostile_clamp: -0.25      # -25% power max
+    favorable_clamp: 0.25     # +25% power max
+
+    hostile_threshold: -0.35
+    favorable_threshold: 0.35
+    scales_with_affinity: true
+
+    tells:
+      hostile:
+        - "Your magic feels sluggish here."
+        - "The weave resists your touch."
+        - "Something dampens the flow."
+      favorable:
+        - "Magic flows easily here."
+        - "Your spell flares unexpectedly bright."
+        - "The land lends its strength."
+
+  # -- RESOURCE YIELD --
+  # Harvesting, mining, hunting returns.
+  resource_yield:
+    enabled: true
+    handle: "harvest.yield_modifier"
+
+    base_probability: 0.8
+    cooldown_seconds: 7200    # 2 hours
+
+    hostile_clamp: -0.4       # -40% yield max
+    favorable_clamp: 0.4      # +40% yield max
+
+    hostile_threshold: -0.25
+    favorable_threshold: 0.25
+    scales_with_affinity: true
+
+    tells:
+      hostile:
+        - "The land yields grudgingly."
+        - "Pickings are slim here."
+        - "What you seek stays hidden."
+      favorable:
+        - "The land gives freely."
+        - "A bounty appears before you."
+        - "Hidden abundance reveals itself."
+
+  # -- REST QUALITY --
+  # Healing during rest, sleep quality.
+  rest_quality:
+    enabled: true
+    handle: "rest.healing_modifier"
+
+    base_probability: 0.9
+    cooldown_seconds: 28800   # 8 hours (once per rest)
+
+    hostile_clamp: -0.3       # -30% healing max
+    favorable_clamp: 0.3      # +30% healing max
+
+    hostile_threshold: -0.2   # Low threshold - rest is sensitive
+    favorable_threshold: 0.2
+    scales_with_affinity: true
+
+    tells:
+      hostile:
+        - "Sleep comes fitfully."
+        - "You wake more tired than you lay down."
+        - "Uneasy dreams trouble your rest."
+        - "The ground is cold and hard."
+      favorable:
+        - "Deep, restorative sleep."
+        - "You wake refreshed."
+        - "Peaceful dreams."
+        - "The earth cradles you gently."
+
+  # -- NAVIGATION --
+  # Flavor only - landmarks visible or hidden
+  navigation:
+    enabled: true
+    handle: null              # Flavor only
+
+    base_probability: 0.6
+    cooldown_seconds: 3600    # 1 hour
+
+    hostile_threshold: -0.35
+    favorable_threshold: 0.35
+    scales_with_affinity: false
+
+    tells:
+      hostile:
+        - "Familiar landmarks seem wrong."
+        - "The sun's position confuses you."
+        - "You've lost your bearings."
+      favorable:
+        - "The way is clear before you."
+        - "You know exactly where you are."
+        - "Natural signs guide your path."
+
+  # -- ANIMAL BEHAVIOR --
+  # Wildlife approach/avoidance.
+  animal_behavior:
+    enabled: true
+    handle: "npc.aggro_radius_modifier"
+
+    base_probability: 0.5
+    cooldown_seconds: 7200    # 2 hours
+
+    hostile_clamp: 0.5        # +50% aggro radius
+    favorable_clamp: -0.5     # -50% aggro radius
+
+    hostile_threshold: -0.4
+    favorable_threshold: 0.4
+    scales_with_affinity: true
+
+    tells:
+      hostile:
+        - "Animals watch you with wary eyes."
+        - "Birds fall silent at your approach."
+        - "You sense hostility from the wildlife."
+      favorable:
+        - "Small creatures approach without fear."
+        - "Birds sing nearby."
+        - "The animals here accept your presence."
+
+
+# -----------------------------------------------------------------------------
+# 7. ANTI-GRIEFING & GUARDRAILS
+# -----------------------------------------------------------------------------
+# Mechanisms to prevent abuse, exploitation, and spiral dynamics.
+
+guardrails:
+  # -- GRIEF BY PROXY PROTECTION --
+  # Personal traces prevent disguise-griefing. Individual ID tracked short-term.
+  personal_trace_priority: true
+  personal_trace_weight_multiplier: 1.5  # Personal traces count 1.5x during hot window
+
+  # -- AFFINITY FARMING PROTECTION --
+  # Spam protection through saturation and event throttling
+  min_event_interval_seconds: 60         # Same event type throttled to 1/minute
+  repeated_event_decay: 0.8              # Each repeat is 80% of previous intensity
+  max_repeated_events: 5                 # After 5, intensity hits floor
+  repeated_event_floor: 0.1              # Minimum 10% intensity for spam
+
+  # -- SPIRAL PREVENTION --
+  # Hard limits on how fast affinity can change
+  max_affinity_change_per_hour: 0.15     # Can't swing more than 0.15 per hour
+  max_affinity_change_per_day: 0.4       # Can't swing more than 0.4 per day
+
+  # -- RECOVERY FLOOR --
+  # Even the most hostile place can be recovered with effort
+  recovery_multiplier: 1.2               # Positive actions count 1.2x in hostile territory
+  rock_bottom_protection: true           # At -0.9, negative events have 50% effect
+  rock_bottom_threshold: -0.9
+  rock_bottom_dampening: 0.5
+
+  # -- NEWBIE PROTECTION --
+  # Grace period for new actors in a location
+  newbie_grace_period_seconds: 3600      # 1 hour
+  newbie_negative_dampening: 0.5         # 50% effect from negative events
+
+  # -- COOLDOWN JITTER --
+  # Prevents gaming exact cooldown timers
+  cooldown_jitter_percent: 10            # +-10% random variation
+
+  # -- SEVERITY NOISE --
+  # Prevents inferring exact affinity from effect size
+  severity_noise_percent: 5              # +-5% random variation on effects
+
+  # -- PVP VIA ENVIRONMENT LIMITS --
+  # Prevents using hostile locations as weapons
+  hostile_location_cap_vs_players: -0.6  # Player vs player, hostile effects cap at -0.6
+  hostile_cooldown_multiplier_pvp: 2.0   # 2x cooldown in PvP contexts
+
+
+# -----------------------------------------------------------------------------
+# 8. COUNTERPLAY CONFIGURATION
+# -----------------------------------------------------------------------------
+# How players can repair damaged affinity. All counterplay should feel mythic.
+
+counterplay:
+  # Effectiveness multipliers by current affinity (worse = more effective)
+  effectiveness_by_band:
+    hostile: 1.5       # Counterplay is 1.5x effective when hostile
+    unwelcoming: 1.2
+    neutral: 1.0
+    favorable: 0.8     # Diminishing returns when already favorable
+    aligned: 0.5       # Hard to improve what's already good
+
+  # Time decay bonus: no negative events = faster recovery
+  abstention_bonus:
+    enabled: true
+    days_required: 3            # 3 days without negative events
+    recovery_rate_multiplier: 1.3  # 30% faster decay of negative traces
+
+  # Ritual repair windows (certain times are more effective)
+  ritual_windows:
+    enabled: true
+    dawn_bonus: 1.2             # Dawn rituals 20% more effective
+    dusk_bonus: 1.1             # Dusk rituals 10% more effective
+    full_moon_bonus: 1.3        # Full moon 30% more effective
+    equinox_bonus: 1.5          # Equinox 50% more effective
+
+  # Mediation: NPC vouching mechanics
+  mediation:
+    enabled: true
+    min_npc_affinity: 0.5       # NPC must have 0.5+ affinity to mediate
+    mediation_transfer_rate: 0.3  # 30% of NPC's positive affinity transfers
+    cooldown_days: 7            # Can only be mediated once per week
+
+
+# -----------------------------------------------------------------------------
+# 9. COMPACTION (MEMORY MANAGEMENT)
+# -----------------------------------------------------------------------------
+# How traces compress over time. Prevents unbounded growth.
+
+compaction:
+  hot_window_days: 7           # Full detail for 7 days
+  warm_window_days: 90         # Aggregated for 90 days
+  scar_intensity_threshold: 0.7  # Only high-intensity events become scars
+  scar_half_life_days: 365     # Scars last about a year
+  prune_threshold: 0.01        # Delete traces below 1% strength
+
+
+# -----------------------------------------------------------------------------
+# 10. INSTITUTION SETTINGS
+# -----------------------------------------------------------------------------
+# How cultural/institutional entities behave.
+
+institutions:
+  drift_rate: 0.1              # 10% blend toward fresh computation
+  inertia: 0.9                 # 90% weight on cached stance
+  half_life_days: 90           # Institutional memory is long
+  refresh_interval_seconds: 86400  # Recompute daily
+
+# Tags that survive memory compaction (cultural identities)
+# Configure per-world: fantasy, modern, sci-fi, etc.
+institutional_tags:
+  - human
+  - elf
+  - dwarf
+  - orc
+  - halfling
+  - gnome
+  - imperial
+  - rebel
+  - guild
+  - clergy
+  - nobility
+  - outcast
+
+
+# -----------------------------------------------------------------------------
+# 11. WORLD TICK
+# -----------------------------------------------------------------------------
+# Background processing for unobserved locations.
+
+world_tick:
+  interval_seconds: 3600       # Every hour
+  batch_size: 100              # Process 100 locations per tick
+  stagger_jitter_seconds: 60   # Random 0-60s stagger to prevent thundering herd
+
+
+# -----------------------------------------------------------------------------
+# 12. ADMIN & DEBUG
+# -----------------------------------------------------------------------------
+# Settings for admin tracing and debugging.
+
+admin:
+  # How many top contributing traces to log
+  max_trace_contributions_logged: 5
+
+  # Snapshot retention for replay
+  snapshot_retention_hours: 168  # 1 week
+
+  # Verbose logging threshold (log if effect exceeds this)
+  verbose_log_threshold: 0.2
+
+  # Always log these affordance types (for tuning)
+  always_log_affordances:
+    - pathing
+    - encounter_rate
+
+
+# -----------------------------------------------------------------------------
+# 13. AFFINITY SCALE
+# -----------------------------------------------------------------------------
+# Normalization factor for tanh compression.
+# Higher = wider raw range before hitting +-1.0
+
+affinity_scale: 10.0
+
+
+# =============================================================================
+# END OF CONFIGURATION
+# =============================================================================
+# Remember: The goal is a world that REMEMBERS, not one that PUNISHES.
+# Players should feel the weight of history, not the hand of a game master.
+# =============================================================================
