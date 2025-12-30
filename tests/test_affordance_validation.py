@@ -44,8 +44,9 @@ from world.affinity.validation import (
     validate_handle,
     validate_handle_count,
     validate_adjustments,
+    validate_tell,
     HANDLE_ALLOWLIST,
-    FORBIDDEN_TELL_PATTERNS,
+    FORBIDDEN_TELL_WORDS,
     AffordanceValidationError,
     HandleNotAllowedError,
     TooManyHandlesError,
@@ -170,16 +171,13 @@ class TestTellValidation:
 
     def test_forbidden_patterns(self):
         """Tells with forbidden patterns should fail."""
-        from world.affinity.validation import validate_tell
-
         bad_tells = [
-            "Your affinity increased.",
-            "Reputation improved.",
-            "Score: 50 points.",
-            "Hostility meter rising.",
-            "The forest is hostile to you.",
-            "You have +5 to damage.",
-            "Effect: 25% bonus.",
+            "Your affinity increased.",      # "affinity" forbidden
+            "Reputation improved.",          # "reputation" forbidden
+            "Hostility meter rising.",       # "meter" forbidden
+            "You have +5 to damage.",        # meter pattern "+5"
+            "Effect: 25% bonus.",            # meter pattern "25%"
+            "You earned 10 points today.",   # meter pattern "10 points"
         ]
 
         for tell in bad_tells:
@@ -291,12 +289,10 @@ class TestPathingAffordance:
     def test_tells_are_narrative(self, test_location, actor):
         """Pathing tells contain no forbidden patterns."""
         for tell in TELLS["pathing"]["hostile"]:
-            for pattern in FORBIDDEN_TELL_PATTERNS:
-                assert pattern.lower() not in tell.lower()
+            validate_tell(tell, "pathing", "hostile")  # Should not raise
 
         for tell in TELLS["pathing"]["favorable"]:
-            for pattern in FORBIDDEN_TELL_PATTERNS:
-                assert pattern.lower() not in tell.lower()
+            validate_tell(tell, "pathing", "favorable")  # Should not raise
 
     def test_replay_matches_exactly(self, test_location, actor):
         """Replay returns exact stored values."""
@@ -372,8 +368,7 @@ class TestEncounterBiasAffordance:
         """Encounter bias tells contain no forbidden patterns."""
         for group in ["hostile", "favorable"]:
             for tell in TELLS["encounter_bias"][group]:
-                for pattern in FORBIDDEN_TELL_PATTERNS:
-                    assert pattern.lower() not in tell.lower()
+                validate_tell(tell, "encounter_bias", group)  # Should not raise
 
 
 class TestSpellSideEffectsAffordance:
@@ -411,8 +406,7 @@ class TestSpellSideEffectsAffordance:
         """Spell side effects tells contain no forbidden patterns."""
         for group in ["hostile", "favorable"]:
             for tell in TELLS["spell_side_effects"][group]:
-                for pattern in FORBIDDEN_TELL_PATTERNS:
-                    assert pattern.lower() not in tell.lower()
+                validate_tell(tell, "spell_side_effects", group)  # Should not raise
 
 
 class TestResourceScarcityAffordance:
@@ -449,8 +443,7 @@ class TestResourceScarcityAffordance:
         """Resource scarcity tells contain no forbidden patterns."""
         for group in ["hostile", "favorable"]:
             for tell in TELLS["resource_scarcity"][group]:
-                for pattern in FORBIDDEN_TELL_PATTERNS:
-                    assert pattern.lower() not in tell.lower()
+                validate_tell(tell, "resource_scarcity", group)  # Should not raise
 
 
 class TestRestQualityAffordance:
@@ -487,8 +480,7 @@ class TestRestQualityAffordance:
         """Rest quality tells contain no forbidden patterns."""
         for group in ["hostile", "favorable"]:
             for tell in TELLS["rest_quality"][group]:
-                for pattern in FORBIDDEN_TELL_PATTERNS:
-                    assert pattern.lower() not in tell.lower()
+                validate_tell(tell, "rest_quality", group)  # Should not raise
 
 
 class TestAmbientMessagingAffordance:
@@ -503,9 +495,7 @@ class TestAmbientMessagingAffordance:
         """Ambient messaging tells contain no forbidden patterns."""
         for group_name, tells in TELLS["ambient_messaging"].items():
             for tell in tells:
-                for pattern in FORBIDDEN_TELL_PATTERNS:
-                    assert pattern.lower() not in tell.lower(), \
-                        f"Tell '{tell}' contains forbidden pattern '{pattern}'"
+                validate_tell(tell, "ambient_messaging", group_name)  # Should not raise
 
 
 class TestLootQualityAffordance:
@@ -542,8 +532,7 @@ class TestLootQualityAffordance:
         """Loot quality tells contain no forbidden patterns."""
         for group in ["hostile", "favorable"]:
             for tell in TELLS["loot_quality"][group]:
-                for pattern in FORBIDDEN_TELL_PATTERNS:
-                    assert pattern.lower() not in tell.lower()
+                validate_tell(tell, "loot_quality", group)  # Should not raise
 
 
 class TestWeatherMicroclimateAffordance:
@@ -558,8 +547,7 @@ class TestWeatherMicroclimateAffordance:
         """Weather microclimate tells contain no forbidden patterns."""
         for group in ["hostile", "favorable"]:
             for tell in TELLS["weather_microclimate"][group]:
-                for pattern in FORBIDDEN_TELL_PATTERNS:
-                    assert pattern.lower() not in tell.lower()
+                validate_tell(tell, "weather_microclimate", group)  # Should not raise
 
 
 class TestAnimalMessengersAffordance:
@@ -574,8 +562,7 @@ class TestAnimalMessengersAffordance:
         """Animal messengers tells contain no forbidden patterns."""
         for group in ["hostile", "favorable"]:
             for tell in TELLS["animal_messengers"][group]:
-                for pattern in FORBIDDEN_TELL_PATTERNS:
-                    assert pattern.lower() not in tell.lower()
+                validate_tell(tell, "animal_messengers", group)  # Should not raise
 
 
 class TestMisleadingNavigationAffordance:
@@ -614,8 +601,7 @@ class TestMisleadingNavigationAffordance:
         """Misleading navigation tells contain no forbidden patterns."""
         for group in ["hostile", "favorable"]:
             for tell in TELLS["misleading_navigation"][group]:
-                for pattern in FORBIDDEN_TELL_PATTERNS:
-                    assert pattern.lower() not in tell.lower()
+                validate_tell(tell, "misleading_navigation", group)  # Should not raise
 
 
 # =============================================================================
