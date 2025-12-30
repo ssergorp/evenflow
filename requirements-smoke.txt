@@ -1,0 +1,4 @@
+# Minimal dependencies for smoke tests
+# Install with: pip install -r requirements-smoke.txt
+
+PyYAML>=6.0

@@ -30,7 +30,7 @@ jobs:
         run: python -m tests.smoke_validate
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short
+        run: python -m pytest tests/ -v --tb=short
 
   validate:
     runs-on: ubuntu-latest
@@ -42,5 +42,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Validate affordances (no dependencies required)
+      - name: Install minimal dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-smoke.txt
+
+      - name: Validate affordances
         run: python -m tests.smoke_validate
