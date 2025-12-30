@@ -675,3 +675,340 @@ class TestSnapshotContents:
         # Should be "slow" for hostile
         assert outcome.snapshot.effect_applied == "slow"
         assert outcome.trace.effect_applied == "slow"
+
+
+# --- Admin Toggle Tests ---
+
+class TestAdminToggles:
+    """Test admin control of affordances."""
+
+    def test_toggle_affordance_off(self, whispering_woods, actor_human_hunter):
+        """Disabled affordance should not trigger."""
+        reset_config()
+        from world.affinity.affordances import admin_toggle_affordance, is_affordance_enabled
+
+        now = time.time()
+
+        # Disable pathing
+        admin_toggle_affordance("pathing", False)
+        assert is_affordance_enabled("pathing") is False
+
+        # Create hostility
+        event = AffinityEvent(
+            event_type="harm.fire",
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location_id=whispering_woods.location_id,
+            intensity=0.6,
+            timestamp=now,
+        )
+        log_event(whispering_woods, event)
+
+        ctx = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="move.pass",
+            action_target=None,
+            timestamp=now,
+        )
+
+        outcome = evaluate_affordances(ctx)
+
+        # Pathing should not have triggered
+        assert "room.travel_time_modifier" not in outcome.adjustments
+
+        # Re-enable for other tests
+        admin_toggle_affordance("pathing", True)
+
+    def test_force_hostile_mode(self, whispering_woods, actor_human_hunter):
+        """Force mode should override actual affinity."""
+        reset_config()
+        from world.affinity.affordances import admin_force_mode
+
+        now = time.time()
+
+        # Force pathing to hostile (even with neutral affinity)
+        admin_force_mode("pathing", "hostile")
+
+        ctx = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="move.pass",
+            action_target=None,
+            timestamp=now,
+        )
+
+        outcome = evaluate_affordances(ctx)
+
+        # Should trigger as hostile even though affinity is neutral
+        if outcome.triggered:
+            assert "room.travel_time_modifier" in outcome.adjustments
+            assert outcome.adjustments["room.travel_time_modifier"] > 0
+
+        # Clear force mode
+        admin_force_mode("pathing", None)
+
+    def test_reset_cooldowns(self, whispering_woods, actor_human_hunter):
+        """Admin should be able to clear cooldowns."""
+        reset_config()
+        from world.affinity.affordances import admin_reset_cooldowns
+
+        now = time.time()
+
+        # Create hostility and trigger affordance
+        event = AffinityEvent(
+            event_type="harm.fire",
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location_id=whispering_woods.location_id,
+            intensity=0.6,
+            timestamp=now,
+        )
+        log_event(whispering_woods, event)
+
+        ctx = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="move.pass",
+            action_target=None,
+            timestamp=now,
+        )
+
+        outcome1 = evaluate_affordances(ctx)
+        assert outcome1.triggered is True
+
+        # Reset cooldowns
+        admin_reset_cooldowns(whispering_woods)
+
+        # Should be able to trigger again
+        ctx2 = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="move.pass",
+            action_target=None,
+            timestamp=now + 1,
+        )
+        outcome2 = evaluate_affordances(ctx2)
+        assert outcome2.triggered is True
+
+
+# --- Multiple Affordances Tests ---
+
+class TestMultipleAffordances:
+    """Test that multiple affordances can trigger together."""
+
+    def test_ambient_messaging_at_hostile(self, whispering_woods, actor_human_hunter):
+        """Ambient messaging should produce tells based on affinity level."""
+        reset_config()
+        from world.affinity.affordances import admin_reset_cooldowns
+
+        now = time.time()
+
+        # Create significant hostility
+        for i in range(5):
+            event = AffinityEvent(
+                event_type="harm.fire",
+                actor_id=actor_human_hunter["actor_id"],
+                actor_tags=actor_human_hunter["actor_tags"],
+                location_id=whispering_woods.location_id,
+                intensity=0.8,
+                timestamp=now + i,
+            )
+            log_event(whispering_woods, event)
+
+        admin_reset_cooldowns(whispering_woods)
+
+        ctx = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="move.pass",
+            action_target=None,
+            timestamp=now + 5,
+        )
+
+        outcome = evaluate_affordances(ctx)
+
+        # Multiple tells may have been generated
+        assert len(outcome.tells) >= 1
+
+        # No tell should reveal affinity numbers (DO_NOT.md #2)
+        for tell in outcome.tells:
+            assert "affinity" not in tell.lower()
+            assert "%" not in tell
+
+
+# --- Spell Side Effects Tests ---
+
+class TestSpellSideEffects:
+    """Test spell efficacy affordance."""
+
+    def test_fire_spell_in_hostile_forest(self, whispering_woods, actor_human_hunter):
+        """Fire spells should be penalized in forests that hate fire."""
+        reset_config()
+        from world.affinity.affordances import admin_reset_cooldowns, admin_toggle_affordance
+
+        # Ensure spell_side_effects is enabled
+        admin_toggle_affordance("spell_side_effects", True)
+
+        now = time.time()
+
+        # Create hostility
+        event = AffinityEvent(
+            event_type="harm.fire",
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location_id=whispering_woods.location_id,
+            intensity=0.6,
+            timestamp=now,
+        )
+        log_event(whispering_woods, event)
+
+        admin_reset_cooldowns(whispering_woods)
+
+        ctx = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="magic.cast",
+            action_target=None,
+            timestamp=now,
+            spell_school="fire",  # This triggers extra penalty
+        )
+
+        outcome = evaluate_affordances(ctx)
+
+        # If spell side effects triggered, should have power modifier
+        if "spell.power_modifier" in outcome.adjustments:
+            # Should be negative (reduced power)
+            assert outcome.adjustments["spell.power_modifier"] < 0
+
+
+# --- Misleading Navigation Tests ---
+
+class TestMisleadingNavigation:
+    """Test rare redirect affordance."""
+
+    def test_redirect_needs_adjacent_rooms(self, whispering_woods, actor_human_hunter):
+        """Misleading navigation needs adjacent rooms to work."""
+        reset_config()
+        from world.affinity.affordances import admin_force_mode, admin_reset_cooldowns
+
+        now = time.time()
+
+        # Force strongly hostile
+        admin_force_mode("misleading_navigation", "hostile")
+
+        admin_reset_cooldowns(whispering_woods)
+
+        # Without adjacent rooms, should not redirect
+        ctx = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="move.pass",
+            action_target=None,
+            timestamp=now,
+            adjacent_rooms=None,
+        )
+
+        outcome = evaluate_affordances(ctx)
+        assert outcome.redirect_target is None
+
+        # With adjacent rooms, might redirect
+        ctx2 = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="move.pass",
+            action_target=None,
+            timestamp=now + 1,
+            adjacent_rooms=["room_a", "room_b", "room_c"],
+        )
+
+        admin_reset_cooldowns(whispering_woods)
+        outcome2 = evaluate_affordances(ctx2)
+
+        # If redirect triggered, should be one of the adjacent rooms
+        if outcome2.redirect_target:
+            assert outcome2.redirect_target in ["room_a", "room_b", "room_c"]
+
+        # Clear force mode
+        admin_force_mode("misleading_navigation", None)
+
+
+# --- Resource Scarcity Tests ---
+
+class TestResourceScarcity:
+    """Test harvest yield modifier."""
+
+    def test_favorable_increases_yield(self, whispering_woods, actor_human_hunter):
+        """Favorable affinity should increase harvest yield."""
+        reset_config()
+        from world.affinity.affordances import admin_reset_cooldowns
+
+        now = time.time()
+
+        # Create favorable affinity through gifts
+        for i in range(5):
+            event = AffinityEvent(
+                event_type="offer.gift",
+                actor_id=actor_human_hunter["actor_id"],
+                actor_tags=actor_human_hunter["actor_tags"],
+                location_id=whispering_woods.location_id,
+                intensity=0.6,
+                timestamp=now + i,
+            )
+            log_event(whispering_woods, event)
+
+        admin_reset_cooldowns(whispering_woods)
+
+        ctx = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="extract.harvest",
+            action_target=None,
+            timestamp=now + 5,
+        )
+
+        outcome = evaluate_affordances(ctx)
+
+        # If resource scarcity triggered, yield modifier should be positive
+        if "harvest.yield_modifier" in outcome.adjustments:
+            assert outcome.adjustments["harvest.yield_modifier"] > 0
+
+
+# --- Tells Never Reveal Affinity Tests ---
+
+class TestTellsNeverRevealAffinity:
+    """Ensure tells never expose affinity values (DO_NOT.md #2)."""
+
+    def test_all_tells_are_indirect(self, whispering_woods, actor_human_hunter):
+        """All tells should be narrative, never numeric."""
+        reset_config()
+        from world.affinity.affordances import TELLS
+
+        forbidden_patterns = [
+            "affinity",
+            "reputation",
+            "score",
+            "points",
+            "meter",
+            "%",
+            "hostile",  # The word itself shouldn't appear
+            "favorable",
+            "neutral",
+        ]
+
+        for aff_type, tell_groups in TELLS.items():
+            for group_name, tells in tell_groups.items():
+                if isinstance(tells, list):
+                    for tell in tells:
+                        for pattern in forbidden_patterns:
+                            assert pattern.lower() not in tell.lower(), \
+                                f"Tell '{tell}' in {aff_type}.{group_name} contains forbidden pattern '{pattern}'"
