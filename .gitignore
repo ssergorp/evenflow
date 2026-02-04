@@ -113,3 +113,9 @@ build/
 tmp/
 .temp/
 *.tmp
+
+# Gas Town (added by gt)
+.runtime/
+.claude/
+.beads/
+.logs/

@@ -5,7 +5,10 @@ All tunable parameters live here, not in code.
 See docs/affinity_spec.md §7 for specification.
 """
 
+import os
+import yaml
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Set
 
 
@@ -128,3 +131,99 @@ def reset_config() -> None:
     """Reset to default configuration."""
     global _active_config
     _active_config = _DEFAULT_CONFIG
+
+
+def load_config_from_yaml(yaml_path: str) -> AffinityConfig:
+    """
+    Load affinity configuration from YAML file.
+
+    Args:
+        yaml_path: Path to affinity_defaults.yaml
+
+    Returns:
+        Fully validated AffinityConfig instance
+
+    Raises:
+        FileNotFoundError: If YAML file doesn't exist
+        ValueError: If YAML structure invalid or missing required fields
+        yaml.YAMLError: If YAML parsing fails
+
+    See docs/affinity_spec.md §7 for configuration schema.
+    """
+    # Load YAML file
+    yaml_file = Path(yaml_path)
+    if not yaml_file.exists():
+        raise FileNotFoundError(f"Config file not found: {yaml_path}")
+
+    with open(yaml_file, 'r') as f:
+        try:
+            data = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ValueError(f"Failed to parse YAML: {e}")
+
+    if not isinstance(data, dict):
+        raise ValueError("YAML root must be a dictionary")
+
+    # Build nested dataclasses
+    try:
+        half_lives = HalfLives(
+            location=EntityHalfLives(
+                personal=float(data["half_lives"]["location"]["personal"]),
+                group=float(data["half_lives"]["location"]["group"]),
+                behavior=float(data["half_lives"]["location"]["behavior"]),
+            ),
+            artifact=EntityHalfLives(
+                personal=float(data["half_lives"]["artifact"]["personal"]),
+                group=float(data["half_lives"]["artifact"]["group"]),
+                behavior=float(data["half_lives"]["artifact"]["behavior"]),
+            ),
+            npc=EntityHalfLives(
+                personal=float(data["half_lives"]["npc"]["personal"]),
+                group=float(data["half_lives"]["npc"]["group"]),
+                behavior=float(data["half_lives"]["npc"]["behavior"]),
+            ),
+        )
+
+        channel_weights = ChannelWeights(
+            personal=float(data["channel_weights"]["personal"]),
+            group=float(data["channel_weights"]["group"]),
+            behavior=float(data["channel_weights"]["behavior"]),
+        )
+
+        saturation_capacity = SaturationCapacity(
+            personal=int(data["saturation_capacity"]["personal"]),
+            group=int(data["saturation_capacity"]["group"]),
+            behavior=int(data["saturation_capacity"]["behavior"]),
+        )
+
+        compaction = CompactionConfig(
+            hot_window_days=int(data["compaction"]["hot_window_days"]),
+            warm_window_days=int(data["compaction"]["warm_window_days"]),
+            scar_intensity_threshold=float(data["compaction"]["scar_intensity_threshold"]),
+            scar_half_life_days=int(data["compaction"]["scar_half_life_days"]),
+            prune_threshold=float(data["compaction"]["prune_threshold"]),
+        )
+
+        institutions = InstitutionConfig(
+            drift_rate=float(data["institutions"]["drift_rate"]),
+            inertia=float(data["institutions"]["inertia"]),
+            half_life_days=int(data["institutions"]["half_life_days"]),
+            refresh_interval=int(data["institutions"]["refresh_interval_seconds"]),
+        )
+
+        institutional_tags = set(data["institutional_tags"])
+
+        return AffinityConfig(
+            half_lives=half_lives,
+            channel_weights=channel_weights,
+            saturation_capacity=saturation_capacity,
+            world_tick_interval=int(data["world_tick"]["interval_seconds"]),
+            compaction=compaction,
+            institutions=institutions,
+            institutional_tags=institutional_tags,
+            affinity_scale=float(data["affinity_scale"]),
+        )
+    except KeyError as e:
+        raise ValueError(f"Missing required field in YAML: {e}")
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"Invalid value in YAML: {e}")

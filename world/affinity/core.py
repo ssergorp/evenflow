@@ -38,6 +38,23 @@ class SaturationState:
 
 
 @dataclass
+class ScarEvent:
+    """
+    High-intensity event preserved as long-term landmark.
+
+    Scars represent "the time the forest burned" or "the massacre at the crossroads."
+    They decay very slowly (half-life: 1 year).
+
+    See spec §4.7
+    """
+    event_type: str                # Category only (e.g., "harm" not "harm.fire")
+    actor_tags: Set[str]           # Institutional tags only
+    intensity: float               # Original intensity (>0.7)
+    timestamp: float               # When it happened
+    half_life_seconds: float       # 365 days * 86400 = 31536000
+
+
+@dataclass
 class AffinityEvent:
     """
     Atomic unit of affinity change.
@@ -99,6 +116,9 @@ class Location:
     # Cooldown tracking: key -> expiry timestamp
     cooldowns: Dict[str, float] = field(default_factory=dict)
 
+    # Scars: High-intensity long-term landmarks
+    scars: List['ScarEvent'] = field(default_factory=list)
+
 
 @dataclass
 class MoodBand:
@@ -114,3 +134,112 @@ class MoodBand:
     affinity_range: Tuple[float, float]  # (min, max) from recent samples
     dominant_emotion: str                 # "hostile", "wary", "neutral", "warm", "aligned"
     last_updated: float
+
+
+@dataclass
+class BearerRecord:
+    """
+    Record of time spent carrying an artifact.
+
+    See spec §2.3
+    """
+    bearer_id: str
+    accumulated_time: float  # seconds
+    last_carried: float      # timestamp
+    intensity: float         # how much it has influenced this bearer
+
+
+@dataclass
+class PressureRule:
+    """
+    How an artifact influences its bearer.
+
+    See spec §5.2
+    """
+    trigger: str                    # "bearer_action", "bearer_state", "proximity"
+    condition: str                  # Expression evaluated against context
+    effect_type: str                # From pressure type vocabulary
+    intensity_base: float           # 0.0–1.0
+    scales_with_influence: bool     # Grows as artifact learns bearer?
+    cooldown_seconds: int           # Minimum time between triggers
+    severity_clamp: float           # Maximum effect magnitude
+
+
+@dataclass
+class Artifact:
+    """
+    Mobile object that carries pressure and learns its bearer.
+
+    See docs/affinity_spec.md §2.3
+    """
+    artifact_id: str
+    name: str
+    description: str
+
+    # Origin and biases
+    origin_tags: Set[str] = field(default_factory=set)
+    valuation_profile: Dict[str, float] = field(default_factory=dict)
+
+    # Bearer learning
+    bearer_traces: Dict[str, BearerRecord] = field(default_factory=dict)
+    current_bearer: Optional[str] = None
+
+    # Pressure mechanics
+    pressure_vectors: List[PressureRule] = field(default_factory=list)
+    influence_accumulator: float = 0.0
+
+    # Housekeeping
+    last_tick: float = 0.0
+
+
+@dataclass
+class Institution:
+    """
+    Virtual entity representing distributed cultural patterns.
+
+    No physical presence, but persists and drifts over time.
+    See docs/affinity_spec.md §2.4
+    """
+    institution_id: str
+    name: str
+    description: str
+
+    # Affiliation
+    affiliated_tags: Set[str] = field(default_factory=set)
+
+    # Cached stance (slowly drifts)
+    cached_stance: Dict[str, float] = field(default_factory=dict)  # actor_tag → affinity
+
+    # Drift parameters
+    drift_rate: float = 0.1      # How quickly it updates from constituents
+    inertia: float = 0.9         # Resistance to rapid change
+    half_life_days: float = 90.0 # Institutional memory is long
+
+    # Housekeeping
+    last_computed: float = 0.0
+
+
+@dataclass
+class AffordanceTriggerLog:
+    """
+    Record of when and why an affordance triggered.
+
+    Admin-only debugging data.
+    See docs/affinity_spec.md §6.4
+    """
+    location_id: str
+    affordance_type: str
+    actor_id: str
+    actor_tags: Set[str]
+    timestamp: float
+
+    # Computed values
+    raw_affinity: float
+    normalized_affinity: float
+    threshold_band: str  # "hostile", "neutral", etc.
+
+    # Top contributing traces (for "why")
+    top_traces: List[Tuple[str, float]] = field(default_factory=list)  # (trace_key, value)
+
+    # Snapshot for replay
+    snapshot: Dict = field(default_factory=dict)  # Full state at trigger time
