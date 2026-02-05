@@ -1002,4 +1002,38 @@ AffordanceTrigger: pathing/slow
 
 ---
 
+## Appendix A. Implementation Notes (Repo Behavior)
+
+These notes document the **current behavior of the code in this repository**.
+They exist to prevent accidental “spec drift” when tuning the system.
+
+### A.1 World Tick vs Compaction
+
+- `world.affinity.world_tick.world_tick()` currently performs:
+  - trace pruning (delete traces whose *decayed magnitude* falls below `config.compaction.prune_threshold`)
+  - cooldown expiry cleanup
+  - saturation decay
+- **It does not run memory compaction** (hot → warm → scar) as part of tick.
+  - Compaction exists in `world.affinity.compaction.compact_traces()` and is tested directly.
+  - Rationale: Phase 1 lifecycle tests assume tick does not change affinity due to compaction side effects.
+
+### A.2 Movement Affordance Evaluation Policy
+
+For movement actions (`AffordanceContext.action_type == "move.pass"`):
+
+- The affordance evaluator runs in a **single-primary-effect mode**:
+  - only the `pathing` affordance is evaluated
+  - if triggered, it applies `room.travel_time_modifier` and sets `effect_applied` to `"slow"` or `"swift"`
+- Cooldown semantics for movement follow naturally from this:
+  - a second evaluation immediately after a triggered movement outcome should not trigger again while the `pathing` cooldown is active.
+
+### A.3 Affinity Scaling Convention
+
+`compute_affinity()` uses tanh compression on the blended raw score.
+In this repository the normalization currently mirrors the test suite’s expected tuning:
+
+- `normalized = tanh(raw * (affinity_scale / 10.0))`
+
+This makes `affinity_scale=10.0` behave as the baseline (multiplier of 1.0).
+
 *End of specification.*
