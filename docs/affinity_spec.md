@@ -471,7 +471,7 @@ def fold_event_type(event_type: str) -> str:
 
 3. **Scar persistence:** Scars decay very slowly (half-life: 1 year). They represent "the time the forest burned" or "the massacre at the crossroads."
 
-**Implementation:** Compaction runs during the world tick (see §4.8).
+**Implementation note (repo):** Compaction is implemented (`compact_traces`) but is **not executed automatically during** `world_tick()` in this repository. Tick focuses on pruning/cooldowns/saturation; compaction is an explicit operation. See Appendix A.
 
 ### 4.8 World Tick (Breathing When Unobserved)
 
@@ -483,22 +483,23 @@ Lazy decay math is fine, but without periodic housekeeping, unvisited locations 
 def world_tick(location):
     """Run periodically, even when no players present."""
 
-    # 1. Compact traces (hot → warm → scar)
-    compact_traces(location)
-
-    # 2. Clear near-zero traces (decayed below threshold)
+    # 1. Clear near-zero traces (decayed below threshold)
     prune_traces(location, threshold=0.01)
 
-    # 3. Update cached mood bands (for quick affordance lookups)
-    location.cached_mood = compute_mood_band(location)
-
-    # 4. Clear expired cooldowns
+    # 2. Clear expired cooldowns
     clear_expired_cooldowns(location)
 
-    # 5. Update saturation levels
+    # 3. Update saturation levels
     update_saturation_state(location)
 
     location.last_tick = current_time()
+```
+
+**Optional separate job:** Memory compaction can be scheduled independently:
+
+```python
+# e.g. run daily/weekly, or during maintenance windows
+compact_traces(location)  # hot → warm → scar
 ```
 
 **Mood bands** are cached affinity ranges for common actor tags, avoiding full recomputation on every action:
