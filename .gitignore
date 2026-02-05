@@ -119,3 +119,6 @@ tmp/
 .claude/
 .beads/
 .logs/
+
+# Local rig/agent state
+state.json
