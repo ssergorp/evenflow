@@ -23,7 +23,7 @@ import time
 import sys
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple, Dict
 
 # Ensure repo root is on sys.path when running as a script
 project_root = Path(__file__).resolve().parent.parent
@@ -59,6 +59,121 @@ class Clocks:
     exposure: int = 0
     tick: int = 0
     trauma: int = 0
+
+
+@dataclass
+class GridWorld:
+    """21x21 physical grid centered on the Circle core."""
+
+    size: int = 21
+    # scalar "pressure" per cell; higher => more hostile/warded-feeling
+    field: List[List[float]] = None
+    # agent position (x,y), 0..size-1
+    agent_x: int = 0
+    agent_y: int = 0
+    # core position (Claire/Circle)
+    core_x: int = 0
+    core_y: int = 0
+
+    def __post_init__(self) -> None:
+        if self.field is None:
+            self.field = [[0.0 for _ in range(self.size)] for _ in range(self.size)]
+        self.core_x = self.size // 2
+        self.core_y = self.size // 2
+        # start agent near an edge
+        self.agent_x = 1
+        self.agent_y = self.size // 2
+
+    def in_bounds(self, x: int, y: int) -> bool:
+        return 0 <= x < self.size and 0 <= y < self.size
+
+    def dist_to_core(self) -> int:
+        return abs(self.agent_x - self.core_x) + abs(self.agent_y - self.core_y)
+
+    def decay(self, rate: float = 0.92) -> None:
+        for y in range(self.size):
+            row = self.field[y]
+            for x in range(self.size):
+                row[x] *= rate
+
+    def add_pressure_disk(self, cx: int, cy: int, radius: int, amount: float) -> None:
+        r2 = radius * radius
+        for y in range(cy - radius, cy + radius + 1):
+            for x in range(cx - radius, cx + radius + 1):
+                if not self.in_bounds(x, y):
+                    continue
+                dx = x - cx
+                dy = y - cy
+                if dx * dx + dy * dy <= r2:
+                    self.field[y][x] += amount
+
+    def step_toward_core(self) -> None:
+        """Move one step toward the core (greedy Manhattan)."""
+        best = (self.agent_x, self.agent_y)
+        best_d = self.dist_to_core()
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            nx, ny = self.agent_x + dx, self.agent_y + dy
+            if not self.in_bounds(nx, ny):
+                continue
+            d = abs(nx - self.core_x) + abs(ny - self.core_y)
+            if d < best_d:
+                best = (nx, ny)
+                best_d = d
+        self.agent_x, self.agent_y = best
+
+    def step_away_from_core(self) -> None:
+        """Move one step away from the core (greedy Manhattan)."""
+        best = (self.agent_x, self.agent_y)
+        best_d = self.dist_to_core()
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            nx, ny = self.agent_x + dx, self.agent_y + dy
+            if not self.in_bounds(nx, ny):
+                continue
+            d = abs(nx - self.core_x) + abs(ny - self.core_y)
+            if d > best_d:
+                best = (nx, ny)
+                best_d = d
+        self.agent_x, self.agent_y = best
+
+    def cell_pressure(self, x: int, y: int) -> float:
+        return self.field[y][x]
+
+
+def render_grid(world: GridWorld, last_complication: Optional[str] = None) -> str:
+    """Render a 21x21 ASCII grid.
+
+    Legend:
+      C = Circle core / Claire position
+      @ = made guy
+      ! = complication marker (on agent cell for this tick)
+      . : * # = increasing pressure
+    """
+    lines: List[str] = []
+    for y in range(world.size):
+        row_chars: List[str] = []
+        for x in range(world.size):
+            ch: str
+            if x == world.core_x and y == world.core_y:
+                ch = "C"
+            else:
+                p = world.cell_pressure(x, y)
+                if p < 0.5:
+                    ch = "."
+                elif p < 1.5:
+                    ch = ":"
+                elif p < 3.0:
+                    ch = "*"
+                else:
+                    ch = "#"
+
+            if x == world.agent_x and y == world.agent_y:
+                ch = "@"
+                if last_complication:
+                    ch = "!"
+
+            row_chars.append(ch)
+        lines.append("".join(row_chars))
+    return "\n".join(lines)
 
 
 # ----------------------------
@@ -222,6 +337,7 @@ def simulate(seed: int = 42) -> int:
     admin_reset_cooldowns(location)
 
     clocks = Clocks()
+    world = GridWorld(size=21)
 
     print("=" * 72)
     print("TUTORIAL LOOP SIM — 1 made guy / clocks / Evenflow")
@@ -231,6 +347,8 @@ def simulate(seed: int = 42) -> int:
     # Start by entering the zone
     now = time.time()
     log_basic_trespass(location, actor, now, intensity=0.25)
+    # seed pressure around the core (the Circle is "awake" even at baseline)
+    world.add_pressure_disk(world.core_x, world.core_y, radius=5, amount=0.15)
 
     while True:
         # Win/lose checks
@@ -265,6 +383,15 @@ def simulate(seed: int = 42) -> int:
         outcome = evaluate_affordances(ctx)
         tell = outcome.tells[0] if outcome.tells else None
 
+        # World field decay each tick
+        world.decay(rate=0.93)
+
+        # Procedural complication
+        comp = pick_complication(clocks, threshold, rng)
+        comp_text = None
+        if comp:
+            comp_text = apply_complication(comp, clocks)
+
         print("\n--- TICK", clocks.tick + 1, "---")
         print(f"Affinity={affinity:.3f} ({threshold})")
         if tell:
@@ -274,11 +401,11 @@ def simulate(seed: int = 42) -> int:
                 "MOD: travel_time_modifier=",
                 f"{outcome.adjustments['room.travel_time_modifier']:+.3f}",
             )
+        if comp_text:
+            print("COMPLICATION:", comp_text)
 
-        # Procedural complication
-        comp = pick_complication(clocks, threshold, rng)
-        if comp:
-            print("COMPLICATION:", apply_complication(comp, clocks))
+        # Render grid snapshot
+        print(render_grid(world, last_complication=comp))
 
         # Decide action (simple policy): prefer PROBE early, BLEND if heat, CUT_OUT if exposure, else PRESS sometimes
         if clocks.tick <= 1:
@@ -296,6 +423,18 @@ def simulate(seed: int = 42) -> int:
                 k=1,
             )[0]
 
+        # Movement each tick (physical grid): move toward core until progress is high,
+        # then start drifting away (exfiltration).
+        if clocks.progress < 5:
+            world.step_toward_core()
+        else:
+            world.step_away_from_core()
+
+        # Standing on "hot" cells increases exposure a bit
+        cell_p = world.cell_pressure(world.agent_x, world.agent_y)
+        if cell_p > 1.5:
+            clocks.exposure = clamp(clocks.exposure + 1, 0, 6)
+
         print("ACTION:", action)
 
         # Apply action effects
@@ -305,6 +444,8 @@ def simulate(seed: int = 42) -> int:
             clocks.progress = clamp(clocks.progress + (1 if ok and rng.random() < 0.4 else 0), 0, 6)
             clocks.tick += 1
             log_basic_trespass(location, actor, now, intensity=0.15)
+            # blending cools the local cell a bit
+            world.add_pressure_disk(world.agent_x, world.agent_y, radius=1, amount=-0.35)
 
         elif action == "PROBE":
             ok = roll(actor.guile, rng, dc=9)
@@ -312,7 +453,9 @@ def simulate(seed: int = 42) -> int:
             clocks.exposure = clamp(clocks.exposure + 1, 0, 6)
             clocks.tick += 1
             log_basic_trespass(location, actor, now, intensity=0.20)
-            # simulate "magic.observe" via behavior trace that Circle values slightly
+            # probing stirs the field (you light up wards)
+            world.add_pressure_disk(world.agent_x, world.agent_y, radius=2, amount=0.25)
+            # simulate "magic.observe" ping from Claire
             log_event(
                 location,
                 AffinityEvent(
@@ -332,6 +475,8 @@ def simulate(seed: int = 42) -> int:
             clocks.exposure = clamp(clocks.exposure + 1, 0, 6)
             clocks.tick += 1
             log_threat(location, actor, now, intensity=0.65)
+            # pressing spikes local hostility
+            world.add_pressure_disk(world.agent_x, world.agent_y, radius=3, amount=0.55)
 
         elif action == "ABSORB":
             clocks.trauma += 1
@@ -353,12 +498,16 @@ def simulate(seed: int = 42) -> int:
                     timestamp=now,
                 ),
             )
+            # payoff calms heat locally but makes the place notice you
+            world.add_pressure_disk(world.agent_x, world.agent_y, radius=1, amount=-0.15)
 
         elif action == "CUT_OUT":
             ok = roll(actor.grift, rng, dc=9)
             clocks.exposure = clamp(clocks.exposure - (2 if ok else 1), 0, 6)
             clocks.progress = clamp(clocks.progress - 1, 0, 6)
             clocks.tick += 1
+            # cutting out reduces pressure around you
+            world.add_pressure_disk(world.agent_x, world.agent_y, radius=2, amount=-0.45)
 
         else:
             clocks.tick += 1
