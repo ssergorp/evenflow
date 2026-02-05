@@ -11,7 +11,8 @@ from typing import Optional
 from world.affinity.core import Location
 from world.affinity.config import get_config
 from world.affinity.computation import get_decayed_value
-from world.affinity.compaction import compact_traces
+# NOTE: compaction is implemented in world.affinity.compaction and tested
+# directly; world_tick intentionally does not run compaction (see docs).
 
 
 @dataclass
