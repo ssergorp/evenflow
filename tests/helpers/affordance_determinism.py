@@ -4,7 +4,7 @@ Deterministic affordance test helpers.
 Utilities to:
 1) Seed traces with exact values to reach target affinities
 2) Compute required trace values using inverse math
-3) Override affordance config deterministically (no global leakage)
+3) Override affordance config deterministically (patched, then restored)
 4) Freeze time to eliminate decay drift
 """
 
@@ -12,12 +12,11 @@ from __future__ import annotations
 
 import math
 from contextlib import contextmanager
-from dataclasses import replace
 from typing import Dict, Iterable, Iterator, Optional, Tuple
 
-from world.affinity.core import Location, TraceRecord, AffordanceConfig
+from world.affinity.core import Location, TraceRecord
 from world.affinity.config import get_config
-from world.affinity.affordances import AFFORDANCE_DEFAULTS
+from world.affinity.affordances import AFFORDANCE_DEFAULTS, _AFFORDANCE_REGISTRY
 
 
 # =============================================================================
@@ -186,61 +185,51 @@ def compute_required_traces_for_tags(
     if total_weight == 0:
         raise ValueError("Total weight is zero, cannot distribute raw.")
 
-    personal_raw = raw_total * (wp / total_weight)
-    group_raw_per_tag = raw_total * (wg / total_weight) if tags else 0.0
-    behavior_raw = raw_total * (wb / total_weight) if include_behavior else 0.0
-
     if valuation == 0:
         raise ValueError("Valuation is zero, cannot backsolve accumulated values.")
 
+    # raw = sum(W_channel * accumulated_channel * valuation). Split raw across
+    # channels in proportion to weight, then divide each share back out by its
+    # own weight. Every seeded channel ends up with the same accumulated value.
+    accumulated = raw_total / (total_weight * valuation)
+
     return {
-        "personal": personal_raw / valuation,
-        "group_per_tag": group_raw_per_tag / valuation,
-        "behavior": behavior_raw / valuation if include_behavior else 0.0,
+        "personal": accumulated,
+        "group_per_tag": accumulated if tags else 0.0,
+        "behavior": accumulated if include_behavior else 0.0,
     }
 
 
 # =============================================================================
-# THRESHOLD LOOKUPS (prefer location config over globals)
+# THRESHOLD LOOKUPS
 # =============================================================================
 
-def get_thresholds(location: Location, affordance_type: str) -> Tuple[float, float]:
+def get_thresholds(affordance_type: str) -> Tuple[float, float]:
     """
     Get hostile and favorable thresholds for an affordance.
 
-    Prefers location.affordances config, falls back to AFFORDANCE_DEFAULTS.
+    Reads AFFORDANCE_DEFAULTS, the same source the evaluators use, so seeded
+    affinities land on the side of the threshold the engine actually checks.
 
     Args:
-        location: Location to check
         affordance_type: e.g., "pathing"
 
     Returns:
         (hostile_threshold, favorable_threshold)
-    """
-    # Check location-specific affordances first
-    for aff in location.affordances:
-        if aff.affordance_type == affordance_type:
-            # Use getattr with fallback for optional fields
-            hostile = getattr(aff, 'hostile_threshold', None)
-            favorable = getattr(aff, 'favorable_threshold', None)
-            if hostile is not None and favorable is not None:
-                return (hostile, favorable)
 
-    # Fall back to AFFORDANCE_DEFAULTS
-    defaults = AFFORDANCE_DEFAULTS.get(affordance_type, {})
-    return (
-        defaults.get("hostile_threshold", -0.3),
-        defaults.get("favorable_threshold", 0.3),
-    )
+    Raises:
+        KeyError: if affordance_type is unknown
+    """
+    defaults = AFFORDANCE_DEFAULTS[affordance_type]
+    return (defaults["hostile_threshold"], defaults["favorable_threshold"])
 
 
 # =============================================================================
-# DETERMINISTIC OVERRIDES (context managers, no global mutation)
+# DETERMINISTIC OVERRIDES (context managers, restored on exit)
 # =============================================================================
 
 @contextmanager
 def deterministic_affordance(
-    location: Location,
     affordance_type: str,
     *,
     force_probability: float = 1.0,
@@ -249,44 +238,43 @@ def deterministic_affordance(
     """
     Context manager for deterministic affordance testing.
 
-    Temporarily modifies:
-    - The target affordance probability to 1.0
-    - All other affordance probabilities to 0.0 (if disable_others=True)
+    Temporarily patches module-level affordance state and restores it on exit:
+    - AFFORDANCE_DEFAULTS[affordance_type]["base_probability"] = force_probability
+    - every other affordance disabled in the registry (if disable_others=True).
+      Disabling via the registry also covers misleading_navigation, whose
+      redirect roll ignores base_probability.
+
+    Not safe for tests that run concurrently in threads.
 
     Args:
-        location: Location to modify
         affordance_type: The affordance to make deterministic
         force_probability: Probability to set (default 1.0 = always trigger)
-        disable_others: If True, set probability=0 for all other affordances
+        disable_others: If True, disable all other affordances
+
+    Raises:
+        KeyError: if affordance_type is unknown
 
     Usage:
-        with deterministic_affordance(location, "pathing"):
+        with deterministic_affordance("pathing"):
             outcome = evaluate_affordances(ctx)
             assert outcome.triggered is True
     """
-    # Store original probabilities for ALL affordances
-    original_probs: Dict[str, float] = {}
-    for aff_name, config in AFFORDANCE_DEFAULTS.items():
-        original_probs[aff_name] = config.get("base_probability", 1.0)
+    if affordance_type not in AFFORDANCE_DEFAULTS:
+        raise KeyError(f"Unknown affordance: {affordance_type!r}")
+
+    original_prob = AFFORDANCE_DEFAULTS[affordance_type]["base_probability"]
+    original_registry = dict(_AFFORDANCE_REGISTRY)
 
     try:
-        # Set target affordance to force_probability
-        if affordance_type in AFFORDANCE_DEFAULTS:
-            AFFORDANCE_DEFAULTS[affordance_type]["base_probability"] = force_probability
-
-        # If disable_others, set all others to 0
+        AFFORDANCE_DEFAULTS[affordance_type]["base_probability"] = force_probability
         if disable_others:
-            for aff_name in AFFORDANCE_DEFAULTS:
-                if aff_name != affordance_type:
-                    AFFORDANCE_DEFAULTS[aff_name]["base_probability"] = 0.0
-
+            for aff_name in _AFFORDANCE_REGISTRY:
+                _AFFORDANCE_REGISTRY[aff_name] = aff_name == affordance_type
         yield
-
     finally:
-        # Restore all original probabilities
-        for aff_name, prob in original_probs.items():
-            if aff_name in AFFORDANCE_DEFAULTS:
-                AFFORDANCE_DEFAULTS[aff_name]["base_probability"] = prob
+        AFFORDANCE_DEFAULTS[affordance_type]["base_probability"] = original_prob
+        _AFFORDANCE_REGISTRY.clear()
+        _AFFORDANCE_REGISTRY.update(original_registry)
 
 
 @contextmanager

@@ -7,6 +7,7 @@ See docs/vertical_slice.md for the complete implementation checklist.
 """
 
 import math
+import re
 import time
 import pytest
 
@@ -38,6 +39,13 @@ from tests.helpers import (
     get_thresholds,
     deterministic_affordance,
     freeze_time,
+)
+
+
+# Threshold labels and scoring words that must never appear in a tell
+SYSTEM_WORDS = re.compile(
+    r"\b(hostile|unwelcoming|neutral|favorable|aligned|score|points?)\b",
+    re.IGNORECASE,
 )
 
 
@@ -245,7 +253,7 @@ class TestHostileOutcome:
 
         with freeze_time(monkeypatch, 1_700_000_000.0) as now:
             # Get the hostile threshold from location config
-            hostile_threshold, _ = get_thresholds(whispering_woods, "pathing")
+            hostile_threshold, _ = get_thresholds("pathing")
             target_affinity = hostile_threshold - 0.1  # Slightly past threshold
 
             # Compute required trace to reach target affinity
@@ -278,7 +286,7 @@ class TestHostileOutcome:
 
         with freeze_time(monkeypatch, 1_700_000_000.0) as now:
             # Get threshold from location config
-            hostile_threshold, _ = get_thresholds(whispering_woods, "pathing")
+            hostile_threshold, _ = get_thresholds("pathing")
             target_affinity = hostile_threshold - 0.15  # Past threshold
             valuation = whispering_woods.valuation_profile["harm.fire"]
             required_trace = compute_required_personal_trace(target_affinity, valuation)
@@ -293,7 +301,7 @@ class TestHostileOutcome:
             )
 
             # Use context manager for deterministic affordance (disables others)
-            with deterministic_affordance(whispering_woods, "pathing"):
+            with deterministic_affordance("pathing"):
                 ctx = AffordanceContext(
                     actor_id=actor_human_hunter["actor_id"],
                     actor_tags=actor_human_hunter["actor_tags"],
@@ -530,7 +538,7 @@ class TestCooldowns:
 
         with freeze_time(monkeypatch, 1_700_000_000.0) as now:
             # Seed trace to guarantee hostile threshold is crossed
-            hostile_threshold, _ = get_thresholds(whispering_woods, "pathing")
+            hostile_threshold, _ = get_thresholds("pathing")
             target_affinity = hostile_threshold - 0.2
             valuation = whispering_woods.valuation_profile["harm.fire"]
             required_trace = compute_required_personal_trace(target_affinity, valuation)
@@ -543,7 +551,7 @@ class TestCooldowns:
                 now
             )
 
-            with deterministic_affordance(whispering_woods, "pathing"):
+            with deterministic_affordance("pathing"):
                 ctx = AffordanceContext(
                     actor_id=actor_human_hunter["actor_id"],
                     actor_tags=actor_human_hunter["actor_tags"],
@@ -595,7 +603,7 @@ class TestSeverityClamp:
                 now
             )
 
-            with deterministic_affordance(whispering_woods, "pathing"):
+            with deterministic_affordance("pathing"):
                 ctx = AffordanceContext(
                     actor_id=actor_human_hunter["actor_id"],
                     actor_tags=actor_human_hunter["actor_tags"],
@@ -681,7 +689,7 @@ class TestSnapshotContents:
 
         with freeze_time(monkeypatch, 1_700_000_000.0) as now:
             # Seed trace to reach hostile threshold
-            hostile_threshold, _ = get_thresholds(whispering_woods, "pathing")
+            hostile_threshold, _ = get_thresholds("pathing")
             target_affinity = hostile_threshold - 0.2
             valuation = whispering_woods.valuation_profile["harm.fire"]
             required_trace = compute_required_personal_trace(target_affinity, valuation)
@@ -694,7 +702,7 @@ class TestSnapshotContents:
                 now
             )
 
-            with deterministic_affordance(whispering_woods, "pathing"):
+            with deterministic_affordance("pathing"):
                 ctx = AffordanceContext(
                     actor_id=actor_human_hunter["actor_id"],
                     actor_tags=actor_human_hunter["actor_tags"],
@@ -761,7 +769,7 @@ class TestAdminToggles:
         from world.affinity.affordances import admin_force_mode
 
         with freeze_time(monkeypatch, 1_700_000_000.0) as now:
-            with deterministic_affordance(whispering_woods, "pathing"):
+            with deterministic_affordance("pathing"):
                 # Force pathing to hostile (even with neutral affinity)
                 admin_force_mode("pathing", "hostile")
 
@@ -792,7 +800,7 @@ class TestAdminToggles:
 
         with freeze_time(monkeypatch, 1_700_000_000.0) as now:
             # Seed trace to reach hostile threshold
-            hostile_threshold, _ = get_thresholds(whispering_woods, "pathing")
+            hostile_threshold, _ = get_thresholds("pathing")
             target_affinity = hostile_threshold - 0.2
             valuation = whispering_woods.valuation_profile["harm.fire"]
             required_trace = compute_required_personal_trace(target_affinity, valuation)
@@ -805,7 +813,7 @@ class TestAdminToggles:
                 now
             )
 
-            with deterministic_affordance(whispering_woods, "pathing"):
+            with deterministic_affordance("pathing"):
                 ctx = AffordanceContext(
                     actor_id=actor_human_hunter["actor_id"],
                     actor_tags=actor_human_hunter["actor_tags"],
@@ -978,6 +986,37 @@ class TestMisleadingNavigation:
         # Clear force mode
         admin_force_mode("misleading_navigation", None)
 
+    def test_force_hostile_redirects_at_neutral_affinity(self, whispering_woods, actor_human_hunter):
+        """Force mode must drive the redirect chance, not the raw affinity."""
+        reset_config()
+        import random
+        from world.affinity.affordances import admin_force_mode, _evaluate_misleading_navigation
+
+        class AlwaysLowRng(random.Random):
+            def random(self):
+                return 0.0
+
+        ctx = AffordanceContext(
+            actor_id=actor_human_hunter["actor_id"],
+            actor_tags=actor_human_hunter["actor_tags"],
+            location=whispering_woods,
+            action_type="move.pass",
+            action_target=None,
+            timestamp=1_700_000_000.0,
+            adjacent_rooms=["room_a"],
+        )
+
+        admin_force_mode("misleading_navigation", "hostile")
+        try:
+            _, _, effect, redirect = _evaluate_misleading_navigation(
+                ctx, 0.0, AlwaysLowRng(), ctx.timestamp
+            )
+        finally:
+            admin_force_mode("misleading_navigation", None)
+
+        assert effect == "redirect"
+        assert redirect == "room_a"
+
 
 # --- Resource Scarcity Tests ---
 
@@ -1041,3 +1080,98 @@ class TestTellsNeverRevealAffinity:
                     for tell in tells:
                         # validate_tell raises if pattern found
                         validate_tell(tell, aff_type, group_name)
+                        # Threshold labels and scoring vocabulary are system terms too
+                        match = SYSTEM_WORDS.search(tell)
+                        assert match is None, \
+                            f"Tell '{tell}' in {aff_type}.{group_name} contains system word '{match.group(0)}'"
+
+
+# --- Determinism Helper Tests ---
+
+class TestDeterminismHelpers:
+    """The test helpers must hit the targets they promise."""
+
+    def test_traces_for_tags_reach_target_affinity(self, monkeypatch, whispering_woods, actor_human_hunter):
+        """Seeding every channel from compute_required_traces_for_tags lands on the target."""
+        reset_config()
+        from tests.helpers import compute_required_traces_for_tags, seed_group_trace, seed_behavior_trace
+
+        target = -0.4
+        valuation = whispering_woods.valuation_profile["harm.fire"]
+        tags = ["human", "hunter"]
+
+        with freeze_time(monkeypatch, 1_700_000_000.0) as now:
+            traces = compute_required_traces_for_tags(
+                target, valuation, tags_to_seed=tags, include_behavior=True
+            )
+            seed_personal_trace(
+                whispering_woods, actor_human_hunter["actor_id"], "harm.fire", traces["personal"], now
+            )
+            for tag in tags:
+                seed_group_trace(whispering_woods, tag, "harm.fire", traces["group_per_tag"], now)
+            seed_behavior_trace(whispering_woods, "harm.fire", traces["behavior"], now)
+
+            affinity = compute_affinity(
+                whispering_woods,
+                actor_human_hunter["actor_id"],
+                actor_human_hunter["actor_tags"],
+                now=now,
+            )
+
+        assert affinity == pytest.approx(target, abs=1e-9)
+
+    def test_deterministic_affordance_rejects_unknown_name(self):
+        """A typo must fail loudly instead of silently disabling everything."""
+        with pytest.raises(KeyError):
+            with deterministic_affordance("path"):
+                pass
+
+    def test_deterministic_affordance_restores_state(self):
+        """Probabilities and the registry are restored on exit."""
+        from world.affinity.affordances import admin_get_registry
+
+        prob_before = AFFORDANCE_DEFAULTS["pathing"]["base_probability"]
+        registry_before = admin_get_registry()
+
+        with deterministic_affordance("pathing"):
+            assert AFFORDANCE_DEFAULTS["pathing"]["base_probability"] == 1.0
+            assert admin_get_registry()["misleading_navigation"] is False
+
+        assert AFFORDANCE_DEFAULTS["pathing"]["base_probability"] == prob_before
+        assert admin_get_registry() == registry_before
+
+    def test_freeze_time_covers_context_default_timestamp(self, monkeypatch, whispering_woods):
+        """AffordanceContext's default timestamp must honor the frozen clock."""
+        with freeze_time(monkeypatch, 1_700_000_000.0) as now:
+            ctx = AffordanceContext(
+                actor_id="a",
+                actor_tags=set(),
+                location=whispering_woods,
+                action_type="move.pass",
+                action_target=None,
+            )
+        assert ctx.timestamp == now
+
+    def test_random_seed_is_stable_across_processes(self):
+        """The RNG seed must not depend on PYTHONHASHSEED."""
+        import os
+        import subprocess
+        import sys
+
+        code = (
+            "from world.affinity.core import Location\n"
+            "from world.affinity.affordances import AffordanceContext, evaluate_affordances\n"
+            "loc = Location(location_id='woods', name='w', description='', valuation_profile={})\n"
+            "ctx = AffordanceContext(actor_id='p1', actor_tags=set(), location=loc,"
+            " action_type='move.pass', action_target=None, timestamp=1700000000.0)\n"
+            "print(evaluate_affordances(ctx).snapshot.random_seed)\n"
+        )
+        seeds = set()
+        for hash_seed in ("1", "2"):
+            env = dict(os.environ, PYTHONHASHSEED=hash_seed)
+            out = subprocess.run(
+                [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True,
+                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            )
+            seeds.add(out.stdout.strip())
+        assert len(seeds) == 1

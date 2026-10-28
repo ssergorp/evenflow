@@ -49,7 +49,7 @@ class AffinityEvent:
     actor_tags: Set[str]               # Categorical markers at time of event
     location_id: str                   # Where it happened
     intensity: float                   # 0.0–1.0, magnitude of action
-    timestamp: float = field(default_factory=time.time)
+    timestamp: float = field(default_factory=lambda: time.time())  # lambda: patchable in tests
     target_id: Optional[str] = None    # Affected entity, if any
     context_tags: Set[str] = field(default_factory=set)  # Additional qualifiers
 

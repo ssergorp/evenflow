@@ -12,6 +12,7 @@ See docs/DO_NOT.md for hard constraints.
 
 import random
 import time
+import zlib
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
@@ -454,7 +455,8 @@ class AffordanceContext:
     location: Location
     action_type: str
     action_target: Optional[str]
-    timestamp: float = field(default_factory=time.time)
+    # Lambda so the clock is looked up at call time (patchable in tests)
+    timestamp: float = field(default_factory=lambda: time.time())
     # Optional: spell school for spell_side_effects
     spell_school: Optional[str] = None
     # Optional: adjacent rooms for misleading_navigation
@@ -583,7 +585,7 @@ def _get_effective_threshold(
     elif force == "favorable":
         # Use midpoint between threshold and 1.0 for forced favor
         forced_affinity = (favorable_thresh + 1.0) / 2
-        return ("aligned", False, True, forced_affinity)
+        return ("favorable", False, True, forced_affinity)
 
     if affinity <= hostile_thresh:
         return ("hostile", True, False, affinity)
@@ -737,7 +739,7 @@ def _evaluate_misleading_navigation(
     )
 
     # Only triggers when strongly hostile
-    if not is_hostile or affinity > defaults["hostile_threshold"]:
+    if not is_hostile:
         return {}, [], None, None
 
     # Need adjacent rooms to redirect to
@@ -746,7 +748,7 @@ def _evaluate_misleading_navigation(
 
     # Scale probability with hostility
     redirect_chance = _scale_severity(
-        affinity,
+        eff_affinity,
         defaults["hostile_clamp"],
         defaults["hostile_threshold"]
     )
@@ -1146,7 +1148,9 @@ def evaluate_affordances(ctx: AffordanceContext) -> AffordanceOutcome:
     now = ctx.timestamp
 
     # Create seeded RNG for deterministic behavior
-    random_seed = hash((ctx.actor_id, ctx.location.location_id, int(ctx.timestamp * 1000)))
+    # crc32 rather than hash(): str hashing is salted per process (PYTHONHASHSEED)
+    seed_key = f"{ctx.actor_id}|{ctx.location.location_id}|{int(ctx.timestamp * 1000)}"
+    random_seed = zlib.crc32(seed_key.encode("utf-8"))
     rng = random.Random(random_seed)
 
     # Compute affinity
