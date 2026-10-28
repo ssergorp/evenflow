@@ -208,7 +208,8 @@ def get_thresholds(affordance_type: str) -> Tuple[float, float]:
     """
     Get hostile and favorable thresholds for an affordance.
 
-    Reads AFFORDANCE_DEFAULTS, the same source the evaluators use, so seeded
+    Reads AFFORDANCE_DEFAULTS (loaded from config/affinity_defaults.yaml), the
+    same source the evaluators use, so seeded
     affinities land on the side of the threshold the engine actually checks.
 
     Args:

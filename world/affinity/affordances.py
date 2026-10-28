@@ -31,25 +31,21 @@ from world.affinity.computation import (
     score_group,
     score_behavior,
 )
-from world.affinity.config import get_config
+from world.affinity.config import get_config, load_affordance_defaults
 
 
 # =============================================================================
 # AFFORDANCE REGISTRY - Admin toggle support
 # =============================================================================
 
-# Global registry of enabled affordances (admin-configurable)
+# Thresholds, clamps, probabilities, cooldowns and handles, read from the
+# `affordances` section of config/affinity_defaults.yaml
+AFFORDANCE_DEFAULTS: Dict[str, Dict] = load_affordance_defaults()
+
+# Global registry of enabled affordances (admin-configurable), seeded from
+# each affordance's `enabled` flag in the YAML
 _AFFORDANCE_REGISTRY: Dict[str, bool] = {
-    "pathing": True,
-    "misleading_navigation": True,
-    "encounter_bias": True,
-    "resource_scarcity": True,
-    "spell_side_effects": True,
-    "rest_quality": True,
-    "ambient_messaging": True,
-    "loot_quality": True,
-    "weather_microclimate": True,
-    "animal_messengers": True,
+    aff: bool(cfg.pop("enabled", True)) for aff, cfg in AFFORDANCE_DEFAULTS.items()
 }
 
 # Debug mode: log all evaluations regardless of trigger
@@ -275,102 +271,6 @@ TELLS = {
             "Bees hum peacefully as you pass.",
             "A hawk circles lazily above—a good omen.",
         ],
-    },
-}
-
-
-# =============================================================================
-# AFFORDANCE CONFIGURATIONS - Default thresholds and clamps
-# =============================================================================
-
-AFFORDANCE_DEFAULTS = {
-    "pathing": {
-        "cooldown_seconds": 3600,  # 1 hour
-        "hostile_threshold": -0.3,
-        "favorable_threshold": 0.3,
-        "hostile_clamp": 0.5,  # +50% travel time
-        "favorable_clamp": -0.3,  # -30% travel time
-        "base_probability": 0.7,
-        "handle": "room.travel_time_modifier",
-    },
-    "misleading_navigation": {
-        "cooldown_seconds": 14400,  # 4 hours
-        "hostile_threshold": -0.5,  # Only strongly hostile
-        "favorable_threshold": 0.7,  # Rarely favorable
-        "hostile_clamp": 0.15,  # Max 15% redirect chance
-        "favorable_clamp": 0.0,  # No favorable redirect
-        "base_probability": 0.05,  # Very rare
-        "handle": "room.redirect_target",
-    },
-    "encounter_bias": {
-        "cooldown_seconds": 1800,  # 30 minutes
-        "hostile_threshold": -0.4,
-        "favorable_threshold": 0.4,
-        "hostile_clamp": 1.0,  # +100% encounter rate
-        "favorable_clamp": -0.5,  # -50% encounter rate
-        "base_probability": 0.6,
-        "handle": "room.encounter_rate_modifier",
-        "handle_secondary": "npc.aggro_radius_modifier",
-    },
-    "resource_scarcity": {
-        "cooldown_seconds": 7200,  # 2 hours
-        "hostile_threshold": -0.25,
-        "favorable_threshold": 0.25,
-        "hostile_clamp": -0.4,  # -40% yield
-        "favorable_clamp": 0.4,  # +40% yield
-        "base_probability": 0.8,
-        "handle": "harvest.yield_modifier",
-    },
-    "spell_side_effects": {
-        "cooldown_seconds": 0,  # Per-spell, no location cooldown
-        "hostile_threshold": -0.35,
-        "favorable_threshold": 0.35,
-        "hostile_clamp": -0.25,  # -25% power
-        "favorable_clamp": 0.25,  # +25% power
-        "base_probability": 0.5,
-        "handle": "spell.power_modifier",
-        "handle_secondary": "spell.backfire_chance",
-        "hostile_backfire": 0.1,  # +10% backfire
-        "favorable_backfire": -0.05,  # -5% backfire
-    },
-    "rest_quality": {
-        "cooldown_seconds": 28800,  # 8 hours
-        "hostile_threshold": -0.2,
-        "favorable_threshold": 0.2,
-        "hostile_clamp": -0.3,  # -30% healing
-        "favorable_clamp": 0.3,  # +30% healing
-        "base_probability": 0.9,
-        "handle": "rest.healing_modifier",
-    },
-    "ambient_messaging": {
-        "cooldown_seconds": 3600,  # 1 hour
-        "hostile_threshold": -0.25,
-        "favorable_threshold": 0.25,
-        "base_probability": 0.6,
-        "handle": None,  # Flavor only
-    },
-    "loot_quality": {
-        "cooldown_seconds": 3600,  # 1 hour
-        "hostile_threshold": -0.3,
-        "favorable_threshold": 0.3,
-        "hostile_clamp": -2,  # -2 quality tiers
-        "favorable_clamp": 2,  # +2 quality tiers
-        "base_probability": 0.7,
-        "handle": "loot.quality_modifier",
-    },
-    "weather_microclimate": {
-        "cooldown_seconds": 14400,  # 4 hours
-        "hostile_threshold": -0.4,
-        "favorable_threshold": 0.4,
-        "base_probability": 0.5,
-        "handle": None,  # Flavor only
-    },
-    "animal_messengers": {
-        "cooldown_seconds": 7200,  # 2 hours
-        "hostile_threshold": -0.25,
-        "favorable_threshold": 0.25,
-        "base_probability": 0.5,
-        "handle": None,  # Flavor only
     },
 }
 
@@ -1492,6 +1392,16 @@ def validate_affordance_definitions() -> None:
     )
 
     try:
+        # Every configured affordance needs tells (and an evaluator), and
+        # vice versa; a renamed YAML entry would otherwise be silently ignored
+        configured, implemented = set(AFFORDANCE_DEFAULTS), set(TELLS)
+        if configured != implemented:
+            raise AffordanceValidationError(
+                "config/affinity_defaults.yaml affordances do not match the engine: "
+                f"missing from config {sorted(implemented - configured)}, "
+                f"unknown in config {sorted(configured - implemented)}"
+            )
+
         # Validate affordance configs
         handle_counts = validate_all_affordances(AFFORDANCE_DEFAULTS)
 

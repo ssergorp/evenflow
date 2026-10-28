@@ -369,6 +369,13 @@ affinity_bands:
 # severity clamps, and threshold requirements.
 
 affordances:
+  # Loaded at import into AFFORDANCE_DEFAULTS (world/affinity/affordances.py).
+  # Names must match the engine's affordances exactly; tests fail on drift.
+  # Catalog and rationale: docs/affordances.md.
+  #
+  # NOTE: `tells` below are NOT loaded yet. Runtime tells live in TELLS in
+  # world/affinity/affordances.py, where they are validated.
+
   # -- PATHING --
   # Travel time modification. The woods twist, or shortcuts appear.
   pathing:
@@ -404,11 +411,38 @@ affordances:
         - "Your feet find sure footing."
         - "A game trail appears, heading your direction."
 
-  # -- ENCOUNTER RATE --
-  # Frequency of hostile/peaceful encounters.
-  encounter_rate:
+  # -- MISLEADING NAVIGATION --
+  # Rare redirects to adjacent rooms. Only when strongly hostile.
+  misleading_navigation:
+    enabled: true
+    handle: "room.redirect_target"
+
+    base_probability: 0.05     # Very rare
+    cooldown_seconds: 14400   # 4 hours
+
+    hostile_clamp: 0.15        # Max 15% redirect chance
+    favorable_clamp: 0.0       # No favorable redirect
+
+    hostile_threshold: -0.5    # Only strongly hostile (docs/affordances.md §2)
+    favorable_threshold: 0.7
+    scales_with_affinity: true
+
+    tells:
+      hostile:
+        - "Familiar landmarks seem wrong."
+        - "The sun's position confuses you."
+        - "You've lost your bearings."
+      favorable:
+        - "The way is clear before you."
+        - "You know exactly where you are."
+        - "Natural signs guide your path."
+
+  # -- ENCOUNTER BIAS --
+  # Frequency of hostile/peaceful encounters, and wildlife aggro.
+  encounter_bias:
     enabled: true
     handle: "room.encounter_rate_modifier"
+    handle_secondary: "npc.aggro_radius_modifier"
 
     base_probability: 0.6
     cooldown_seconds: 1800    # 30 minutes
@@ -430,35 +464,9 @@ affordances:
         - "You sense no threat nearby."
         - "The usual dangers seem distant."
 
-  # -- SPELL EFFICACY --
-  # Magic works better or worse here.
-  spell_efficacy:
-    enabled: true
-    handle: "spell.power_modifier"
-
-    base_probability: 0.5
-    cooldown_seconds: 0       # Per-spell, no location cooldown
-
-    hostile_clamp: -0.25      # -25% power max
-    favorable_clamp: 0.25     # +25% power max
-
-    hostile_threshold: -0.35
-    favorable_threshold: 0.35
-    scales_with_affinity: true
-
-    tells:
-      hostile:
-        - "Your magic feels sluggish here."
-        - "The weave resists your touch."
-        - "Something dampens the flow."
-      favorable:
-        - "Magic flows easily here."
-        - "Your spell flares unexpectedly bright."
-        - "The land lends its strength."
-
-  # -- RESOURCE YIELD --
+  # -- RESOURCE SCARCITY --
   # Harvesting, mining, hunting returns.
-  resource_yield:
+  resource_scarcity:
     enabled: true
     handle: "harvest.yield_modifier"
 
@@ -481,6 +489,35 @@ affordances:
         - "The land gives freely."
         - "A bounty appears before you."
         - "Hidden abundance reveals itself."
+
+  # -- SPELL SIDE-EFFECTS --
+  # Magic works better or worse here, and may backfire.
+  spell_side_effects:
+    enabled: true
+    handle: "spell.power_modifier"
+    handle_secondary: "spell.backfire_chance"
+
+    base_probability: 0.5
+    cooldown_seconds: 0       # Per-spell, no location cooldown
+
+    hostile_clamp: -0.25      # -25% power max
+    favorable_clamp: 0.25     # +25% power max
+    hostile_backfire: 0.1     # +10% backfire chance
+    favorable_backfire: -0.05 # -5% backfire chance
+
+    hostile_threshold: -0.35
+    favorable_threshold: 0.35
+    scales_with_affinity: true
+
+    tells:
+      hostile:
+        - "Your magic feels sluggish here."
+        - "The weave resists your touch."
+        - "Something dampens the flow."
+      favorable:
+        - "Magic flows easily here."
+        - "Your spell flares unexpectedly bright."
+        - "The land lends its strength."
 
   # -- REST QUALITY --
   # Healing during rest, sleep quality.
@@ -510,44 +547,60 @@ affordances:
         - "Peaceful dreams."
         - "The earth cradles you gently."
 
-  # -- NAVIGATION --
-  # Flavor only - landmarks visible or hidden
-  navigation:
+  # -- AMBIENT MESSAGING --
+  # Flavor only - the place murmurs its mood.
+  ambient_messaging:
     enabled: true
     handle: null              # Flavor only
 
     base_probability: 0.6
     cooldown_seconds: 3600    # 1 hour
 
-    hostile_threshold: -0.35
-    favorable_threshold: 0.35
+    hostile_threshold: -0.25
+    favorable_threshold: 0.25
     scales_with_affinity: false
 
-    tells:
-      hostile:
-        - "Familiar landmarks seem wrong."
-        - "The sun's position confuses you."
-        - "You've lost your bearings."
-      favorable:
-        - "The way is clear before you."
-        - "You know exactly where you are."
-        - "Natural signs guide your path."
-
-  # -- ANIMAL BEHAVIOR --
-  # Wildlife approach/avoidance.
-  animal_behavior:
+  # -- LOOT QUALITY --
+  # Quality tier of found items.
+  loot_quality:
     enabled: true
-    handle: "npc.aggro_radius_modifier"
+    handle: "loot.quality_modifier"
+
+    base_probability: 0.7
+    cooldown_seconds: 3600    # 1 hour
+
+    hostile_clamp: -2         # -2 quality tiers
+    favorable_clamp: 2        # +2 quality tiers
+
+    hostile_threshold: -0.3
+    favorable_threshold: 0.3
+    scales_with_affinity: true
+
+  # -- WEATHER MICROCLIMATE --
+  # Flavor only - local weather turns with the place's mood.
+  weather_microclimate:
+    enabled: true
+    handle: null              # Flavor only
+
+    base_probability: 0.5
+    cooldown_seconds: 14400   # 4 hours
+
+    hostile_threshold: -0.4
+    favorable_threshold: 0.4
+    scales_with_affinity: false
+
+  # -- ANIMAL MESSENGERS --
+  # Flavor only - creatures behave as omens.
+  animal_messengers:
+    enabled: true
+    handle: null              # Flavor only
 
     base_probability: 0.5
     cooldown_seconds: 7200    # 2 hours
 
-    hostile_clamp: 0.5        # +50% aggro radius
-    favorable_clamp: -0.5     # -50% aggro radius
-
-    hostile_threshold: -0.4
-    favorable_threshold: 0.4
-    scales_with_affinity: true
+    hostile_threshold: -0.25
+    favorable_threshold: 0.25
+    scales_with_affinity: false
 
     tells:
       hostile:
@@ -715,7 +768,7 @@ admin:
   # Always log these affordance types (for tuning)
   always_log_affordances:
     - pathing
-    - encounter_rate
+    - encounter_bias
 
 
 # -----------------------------------------------------------------------------
