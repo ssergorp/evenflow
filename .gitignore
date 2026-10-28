@@ -52,8 +52,9 @@ Desktop.ini
 # Evennia generates a game directory structure with runtime logs and DB files.
 # Keep source, ignore runtime artifacts.
 
-# Logs
-logs/
+# Logs (keep the README so the directory exists)
+server/logs/*
+!server/logs/README.md
 *.log
 
 # SQLite DBs (common in local dev)
@@ -61,11 +62,10 @@ logs/
 *.db
 
 # Django collected static / media (if used)
-static/
-media/
+/static/
+/media/
 
 # Evennia runtime / server artifacts (common patterns)
-server/logs/
 server/.env
 server/.secret
 server/state/
@@ -113,3 +113,11 @@ build/
 tmp/
 .temp/
 *.tmp
+
+# Evennia runtime artifacts
+*.db3
+*.pid
+*.restart
+server/conf/secret_settings.py
+server/.static/
+server/.media/

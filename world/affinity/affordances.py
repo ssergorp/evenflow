@@ -361,6 +361,9 @@ class AffordanceContext:
     spell_school: Optional[str] = None
     # Optional: adjacent rooms for misleading_navigation
     adjacent_rooms: Optional[List[str]] = None
+    # Optional: only evaluate these affordances (None = all). Lets the game
+    # ask about pathing on a move without also rolling rest_quality.
+    affordances: Optional[Set[str]] = None
 
 
 @dataclass
@@ -1094,7 +1097,12 @@ def evaluate_affordances(ctx: AffordanceContext) -> AffordanceOutcome:
         ("animal_messengers", _evaluate_animal_messengers),
     ]
 
+    def _wanted(aff_type: str) -> bool:
+        return ctx.affordances is None or aff_type in ctx.affordances
+
     for aff_type, evaluator in affordance_evaluators:
+        if not _wanted(aff_type):
+            continue
         defaults = AFFORDANCE_DEFAULTS[aff_type]
         cooldown_key = f"{aff_type}:{ctx.actor_id}:{ctx.location.location_id}"
 
@@ -1127,7 +1135,7 @@ def evaluate_affordances(ctx: AffordanceContext) -> AffordanceOutcome:
     # Handle misleading navigation separately (has redirect target)
     nav_cooldown_key = f"misleading_navigation:{ctx.actor_id}:{ctx.location.location_id}"
     nav_defaults = AFFORDANCE_DEFAULTS["misleading_navigation"]
-    if not _is_cooldown_active(ctx.location, nav_cooldown_key, now):
+    if _wanted("misleading_navigation") and not _is_cooldown_active(ctx.location, nav_cooldown_key, now):
         adjustments, tells, effect, redirect = _evaluate_misleading_navigation(
             ctx, affinity, rng, now
         )

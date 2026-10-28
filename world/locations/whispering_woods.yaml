@@ -133,3 +133,7 @@ test_scenarios:
       - { type: "offer.gift", intensity: 0.5, day: 0 }
     expected_affinity:
       day_1: 0.15    # Favorable
+
+# Game layer: nominal seconds to cross this place on foot. Pathing's
+# travel_time_modifier scales this (e.g. +0.5 -> 5 extra seconds).
+travel_seconds: 10

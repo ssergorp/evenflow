@@ -1,0 +1,21 @@
+# Hollowmere - the village where players start.
+# People care about each other more than about trees.
+
+location_id: hollowmere
+name: Hollowmere
+description: |
+  A handful of low stone houses gathered around a well. Smoke rises from
+  chimneys, and the villagers watch newcomers with polite caution.
+
+valuation_profile:
+  harm: -0.3             # Violence among neighbors is remembered
+  offer: 0.2
+  create: 0.2
+  harm.fire: -0.6        # Thatch roofs burn
+  harm.poison: -0.7      # The well is everything
+  extract.hunt: 0.2      # Meat on the table is welcome
+  extract.harvest: 0.1
+  offer.gift: 0.4
+  create.plant: 0.3
+
+travel_seconds: 0        # Streets, not trails

@@ -42,8 +42,9 @@ def _update_trace(
 
     See spec §4.4: Decay existing value, then add new intensity.
     """
-    # Decay existing value to present
-    decayed = get_decayed_value(trace, half_life_seconds)
+    # Decay existing value to the event's time (not the wall clock), so
+    # replayed or backdated events accumulate correctly
+    decayed = get_decayed_value(trace, half_life_seconds, now=timestamp)
 
     # Add new intensity
     trace.accumulated = decayed + intensity

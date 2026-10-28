@@ -21,101 +21,115 @@ Early prototype. Expect fast iteration and breaking changes.
 ## Quick start
 
 ### Requirements
-- Python 3.11+ (3.10 may work, but 3.11+ recommended)
-- Evennia installed (Twisted/Django come with it)
+- Python 3.11+ (Evennia 5 requires it)
 
-### Setup (from repo root)
-Put these commands in your terminal **from the repo root**:
+### Run the game (from the repo root)
 
 ```bash
-# repo root
 python -m venv .venv
-source .venv/bin/activate
-
-# repo root
+source .venv/bin/activate        # evennia needs the venv on PATH
 pip install -r requirements.txt
 
-# repo root
 evennia migrate
-evennia start
-Create an admin account (repo root):
+evennia start                    # first start asks for an admin account, then builds the map
+```
 
-bash
-Copy code
-# repo root
-evennia createsuperuser
-Connect as a player (your local machine):
+Connect from another terminal:
 
-bash
-Copy code
-# in another terminal
+```bash
 telnet localhost 4000
-Stop the server (repo root):
+```
 
-bash
-Copy code
-# repo root
-evennia stop
-Repo layout (planned / evolving)
-docs/spec/
-Design doctrine: affinity model, affordances, legibility rules, adversarial play.
+Then `create <name> <password>` and `connect <name> <password>` for a player, or connect as the admin account.
 
-config/affinity_defaults.yaml
-Default parameters (half-lives, caps, cooldowns, affordance probabilities).
+Stop the server with `evennia stop`. Memory is saved in the database, so places still remember after a restart.
 
-world/affinity/
-Memory traces, affinity fields, decay jobs, query APIs.
+### Run the tests (no Evennia needed, Python 3.10+)
 
-world/affordances/
-“World nudges” that express affinity indirectly.
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests/
+python -m tests.smoke_validate   # standalone config/affordance check
+```
 
-world/artifacts/
-Artifact intent/pressure systems (Ring-like behavior, no dialogue).
+## How to play
 
-world/lore/
-Rumors + folklore generation (truthy, incomplete, occasionally wrong).
+New characters start in **Hollowmere**. The starter map:
 
-commands/
-Player verbs + admin-only debug/trace commands.
+```
+Hollowmere ── east ── Forest Edge ── north ── Whispering Woods ── north ── The Old Grove
+                          │                         │
+                          └──── east ── Riverbank ──┘ (west)
+```
 
-tests/
-Unit tests for the affinity engine and key behaviors.
+Each place has its own values (`world/locations/*.yaml`). The woods hate fire; the river cares about its water; the village cares about its people.
 
-Design constraints (non-negotiable)
-No player-visible affinity meters (“Forest affinity: -12” is forbidden).
+| Verb | Leaves a memory of |
+|------|--------------------|
+| `burn` | `harm.fire` |
+| `plant` | `create.plant` |
+| `offer` | `offer.gift` |
+| `hunt` | `extract.hunt` |
+| `forage` | `extract.harvest` |
+| `rest` | nothing; the place just answers |
 
-Affordances must be probabilistic, subtle, and contextual.
+Places answer only through narrative tells, and through travel: a place that dislikes you may slow your departure or, if it truly hates you, lead you somewhere you did not mean to go. Places remember **you**, **your kind** (character tags such as `human`, `outsider`), and **what happens here** generally, and forget each at a different speed.
 
-LLM output cannot be a root cause of world actions, only a proposal/summary layer.
+Try it: set a few fires in the Whispering Woods, then walk out. Then leave offerings, or wait.
 
-Every triggered affordance must be explainable via an admin trace.
+### Admin commands (Builder and above)
 
-Admin tools (expected)
-@affinity <target>: inspect internal state (admins only)
+| Command | Does |
+|---------|------|
+| `@affinity [<character>]` | How this room feels about someone, and the memories behind it |
+| `@affinity/age <days>` | Make this room's memories older, to watch it forgive |
+| `@affinity/forget` | Wipe this room's memory |
+| `@trace [<character>] [= <count>]` | Why recent affordances did or did not trigger |
+| `@toggleaff [<affordance> on\|off]` | List affordances, or switch one on or off |
 
-@trace <last|id>: explain why an affordance triggered (admins only)
+Change a character's group identity with Evennia tags, e.g. `tag me = elf:affinity`.
 
-@toggleaff <name>: enable/disable an affordance for testing (admins only)
+On a database that predates the map, build it in-game as superuser: `py from world.build import build_world; build_world()`.
 
-(Exact command names may change; see commands/.)
+## Repo layout
 
-Roadmap
- Minimal world map (5 rooms) + movement
+| Path | What |
+|------|------|
+| `config/affinity_defaults.yaml` | All tuning: half-lives, channel weights, affordance thresholds, probabilities, cooldowns |
+| `world/affinity/` | The affinity engine: traces, decay, affinity, affordances. Plain Python, no Evennia |
+| `world/bridge.py` | Glue between the engine and the game. Plain Python, tested with pytest |
+| `world/locations/` | One YAML file per place: description, values, travel time |
+| `world/build.py` | Builds the starter map |
+| `typeclasses/` | Evennia rooms that remember, exits that consult them, characters with affinity tags |
+| `commands/affinity.py` | Player verbs and admin commands |
+| `server/` | Evennia server config |
+| `docs/` | Design doctrine: `affinity_spec.md`, `affordances.md`, `DO_NOT.md`, `STATE.md` |
+| `tests/` | Engine, bridge and config tests |
 
- Affinity engine: traces + decay + query API
+Planned: `world/artifacts/` (bearer-specific pressure) and `world/lore/` (rumors and folklore).
 
- 8–12 affordances (indirect response layer)
+## Design constraints (non-negotiable)
 
- One artifact prototype (bearer-specific pressure)
+- No player-visible affinity meters ("Forest affinity: -12" is forbidden).
+- Affordances must be probabilistic, subtle, and contextual.
+- LLM output cannot be a root cause of world actions, only a proposal/summary layer.
+- Every triggered affordance must be explainable via an admin trace.
 
- Myth layer: rumors + environmental tells (with false lore)
+See `docs/DO_NOT.md` for the full list.
 
- Optional Discord adapter (treat Discord as another session pipe)
+## Roadmap
 
-Contributing
-This project is opinionated. If you want to add features, align with:
+- [x] Affinity engine: traces + decay + query API
+- [x] 8–12 affordances (indirect response layer)
+- [x] Minimal world map (5 rooms) + movement
+- [ ] One artifact prototype (bearer-specific pressure)
+- [ ] Myth layer: rumors + environmental tells (with false lore)
+- [ ] Optional Discord adapter (treat Discord as another session pipe)
 
-persistence and memory, 2) indirect legibility, 3) admin traceability.
+## Contributing
 
-License
+This project is opinionated. If you want to add features, align with: 1) persistence and memory, 2) indirect legibility, 3) admin traceability.
+
+## License
+
 TBD

@@ -1,7 +1,8 @@
 # Development dependencies for evenflow
 # Install with: pip install -r requirements-dev.txt
 
--r requirements.txt
+# The affinity engine and its tests need only PyYAML, not Evennia
+PyYAML>=6.0
 
 # Testing
 pytest>=7.0.0

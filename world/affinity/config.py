@@ -213,6 +213,22 @@ def load_affordance_defaults(path: Optional[PathLike] = None) -> Dict[str, Dict[
     return result
 
 
+def load_event_intensity(path: Optional[PathLike] = None) -> Dict[str, float]:
+    """
+    Read the typical intensity for each event type from `event_intensity`.
+
+    Returns:
+        Dict mapping "category.kind" (e.g. "harm.fire") -> typical intensity
+    """
+    data = _read_yaml(path)
+    section = _section(data, "event_intensity", "config")
+    result: Dict[str, float] = {}
+    for category, kinds in section.items():
+        for kind, entry in kinds.items():
+            result[f"{category}.{kind}"] = _section(entry, "typical", f"event_intensity.{category}.{kind}")
+    return result
+
+
 def load_config_file(path: PathLike) -> AffinityConfig:
     """
     Load a YAML file and make it the active configuration.

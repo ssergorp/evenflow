@@ -1,0 +1,19 @@
+# Riverbank - cold water east of the woods. Cares about its water.
+
+location_id: riverbank
+name: The Riverbank
+description: |
+  Clear water runs fast over smooth stones. Reeds crowd the shallows, and
+  the far bank is lost in mist.
+
+valuation_profile:
+  harm: -0.1
+  offer: 0.15
+  harm.fire: -0.1        # Too wet to care much
+  harm.poison: -0.8      # Fouling the water is the worst thing
+  extract.hunt: 0.0      # Fishing is the river's way
+  extract.harvest: 0.1
+  offer.gift: 0.3
+  create.plant: 0.2
+
+travel_seconds: 6

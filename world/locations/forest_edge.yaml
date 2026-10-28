@@ -1,0 +1,20 @@
+# Forest Edge - meadow between village and woods. Mild opinions.
+
+location_id: forest_edge
+name: Forest Edge
+description: |
+  Tall grass gives way to the first dark trunks of the woods. A worn trail
+  runs north into the trees; another bends east toward running water.
+
+valuation_profile:
+  harm: -0.1
+  extract: -0.05
+  offer: 0.1
+  create: 0.1
+  harm.fire: -0.5        # Dry grass
+  extract.harvest: 0.0   # Plenty to go around
+  extract.hunt: -0.1
+  offer.gift: 0.3
+  create.plant: 0.4
+
+travel_seconds: 4

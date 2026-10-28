@@ -1,0 +1,21 @@
+# The Old Grove - a sacred clearing deep in the woods. Strong opinions.
+
+location_id: old_grove
+name: The Old Grove
+description: |
+  A ring of enormous oaks surrounds a mossy clearing. The air is still,
+  and the silence feels attentive.
+
+valuation_profile:
+  harm: -0.4
+  extract: -0.4
+  offer: 0.3
+  create: 0.2
+  harm.fire: -0.9        # Unforgivable, nearly
+  extract.hunt: -0.7     # Nothing is killed here
+  extract.harvest: -0.5  # Not even berries
+  offer.gift: 0.6
+  create.ritual: 0.7
+  create.plant: 0.5
+
+travel_seconds: 12
